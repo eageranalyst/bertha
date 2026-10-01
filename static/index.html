@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Factory</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Agent Factory</h1>
+    <form id="new-session-form">
+      <input id="new-repo" type="text" placeholder="owner/repo" required />
+      <input id="new-issue" type="number" placeholder="issue #" required min="1" />
+      <button type="submit">Start session</button>
+    </form>
+  </header>
+
+  <main>
+    <section id="session-list-pane">
+      <table id="session-table">
+        <thead>
+          <tr>
+            <th>Repo</th>
+            <th>Issue</th>
+            <th>Status</th>
+            <th>PR</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody id="session-rows"></tbody>
+      </table>
+    </section>
+
+    <section id="detail-pane">
+      <div id="detail-empty">Select a session.</div>
+      <div id="detail-content" class="hidden">
+        <div id="detail-header">
+          <h2 id="detail-title"></h2>
+          <div id="detail-meta"></div>
+          <div id="detail-actions">
+            <button id="btn-close">Close</button>
+            <button id="btn-archive">Archive</button>
+            <button id="btn-reopen">Reopen</button>
+          </div>
+        </div>
+        <pre id="detail-logs"></pre>
+        <form id="message-form">
+          <textarea id="message-text" placeholder="Message the agent (wakes it)..."></textarea>
+          <button type="submit">Send</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
