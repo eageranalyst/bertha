@@ -6,11 +6,14 @@ fresh short-lived connection per call is simple and fast enough for a
 local tool. No ORM: the schema is small and the queries are simple.
 """
 
+import logging
 import sqlite3
 import time
 import uuid
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("factory.store")
 
 _DB_PATH: str | None = None
 
@@ -58,7 +61,64 @@ def init_db(db_path: str) -> None:
     _DB_PATH = db_path
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     with _connect() as conn:
+        _migrate_pre_redesign_sessions_table(conn)
         conn.executescript(SCHEMA)
+
+
+def _migrate_pre_redesign_sessions_table(conn: sqlite3.Connection) -> None:
+    """One-time, idempotent upgrade of a `sessions` table from before
+    the ask/code redesign: no ref/session_type/title columns, and
+    repo/issue_number/branch_name were NOT NULL (which the current
+    schema needs to relax -- SQLite can't ALTER that away, so this
+    recreates the table and copies rows across instead). A no-op once
+    a database is current (`ref` column present), and a no-op on a
+    brand-new database (the table doesn't exist yet).
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+    if not cols or "ref" in cols:
+        return
+    logger.warning("migrating sessions table from pre-redesign schema")
+    conn.execute("ALTER TABLE sessions RENAME TO sessions_old")
+    conn.execute(
+        """
+        CREATE TABLE sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ref TEXT NOT NULL,
+            session_type TEXT NOT NULL DEFAULT 'code',
+            repo TEXT,
+            issue_number INTEGER,
+            title TEXT NOT NULL DEFAULT '',
+            pr_number INTEGER,
+            branch_name TEXT,
+            harness_session_id TEXT,
+            status TEXT NOT NULL DEFAULT 'queued',
+            container_id TEXT,
+            turn_count INTEGER NOT NULL DEFAULT 0,
+            last_seen_comment_id INTEGER NOT NULL DEFAULT 0,
+            last_activity_at REAL NOT NULL,
+            pending_message TEXT,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        )
+        """
+    )
+    title_source = "title" if "title" in cols else ("issue_title" if "issue_title" in cols else "''")
+    session_type_source = "session_type" if "session_type" in cols else "'code'"
+    conn.execute(
+        f"""
+        INSERT INTO sessions
+            (id, ref, session_type, repo, issue_number, title, pr_number,
+             branch_name, harness_session_id, status, container_id, turn_count,
+             last_seen_comment_id, last_activity_at, pending_message, created_at, updated_at)
+        SELECT
+            id, substr(lower(hex(randomblob(4))), 1, 7), {session_type_source}, repo, issue_number,
+            {title_source}, pr_number, branch_name, harness_session_id, status,
+            container_id, turn_count, last_seen_comment_id, last_activity_at,
+            pending_message, created_at, updated_at
+        FROM sessions_old
+        """
+    )
+    conn.execute("DROP TABLE sessions_old")
 
 
 def _connect() -> sqlite3.Connection:
