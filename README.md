@@ -4,7 +4,21 @@ A lightweight local service that picks up GitHub issues assigned to a
 bot account, does the work in an ephemeral Docker container, opens a
 PR, then goes idle. While idle it polls the PR for new comments and
 wakes itself back up to act on them. A local web UI lists every
-session and lets you message, close, archive, or start one by hand.
+session and lets you message, stop, close, archive, or start one by
+hand.
+
+Two session types:
+- **ask** -- no repo, no container. The prompt (plus that session's
+  own history) is proxied straight to the local model over HTTP from
+  a background thread; fastest path, nothing to set up.
+- **code** -- a container against a persistent per-session volume,
+  full filesystem + OpenCode. A repo is optional even here: without
+  one it's just a scratch workspace (no git remote, no push, no PR);
+  attach a repo (and optionally an issue) at creation or any time
+  afterward from the UI to get the clone/checkout/push/PR flow.
+
+A session can be started with nothing filled in at all -- it just
+sits `idle` until you send it a first message from the UI.
 
 No cloud control plane, no webhooks, no multi-tenant auth: this is a
 single-user, single-machine tool. GitHub is only ever polled, never
@@ -53,27 +67,43 @@ still worth doing on top of it, not done yet:
 
 - **Scheduler** (`app/scheduler.py`) ticks every `FACTORY_POLL_INTERVAL_SECONDS`
   on its own thread:
-  1. lists open issues assigned to the bot account on each watched repo
-     and creates a session for any that don't have one yet
-  2. starts a container for any session that's `queued`
-  3. checks `running` sessions for a finished container, reads the PR
-     number out of its logs, and moves to `pr_open` or `failed`
+  1. lists open issues assigned to the bot account on each repo in the
+     registry (seeded from `FACTORY_REPOS`, extendable from the UI) and
+     creates a `code` session for any that don't have one yet
+  2. any `queued` session launches a turn: `ask` sessions get answered
+     directly by a background thread (an HTTP call to the local
+     model, no container); `code` sessions get a container (repo
+     optional -- see below)
+  3. checks `running` code sessions for a finished container, reads
+     the PR number out of its logs, and moves to `pr_open` (repo
+     attached, PR opened), `idle` (no repo attached, nothing to push),
+     or `failed`
   4. after `FACTORY_SLEEP_AFTER_MINUTES` of no activity, moves `pr_open`
      sessions to `sleeping`
   5. polls `sleeping` sessions' PRs for new comments since the last one
      seen (skipping the bot's own comments, so it never wakes itself)
      and queues a new turn with those comments as the prompt
-- **Sessions never keep a container running.** Each turn is one
+- **A session with a pending message is always what drives the next
+  turn** -- a fresh issue's body, a UI message, a new PR comment, or
+  an `attach` call all just set `pending_message` and let the same
+  promotion logic pick it up on the next tick.
+- **Code sessions never keep a container running.** Each turn is one
   `docker run` against a persistent named volume (`factory-ws-<id>`)
-  holding the git clone and OpenCode's own session state (`HOME=/data`
-  inside the container, so its sqlite session db lands on the volume
-  too). Sleeping costs nothing; waking is just another container run
-  against the same volume, resuming the same OpenCode session
-  (`opencode run ... -s <session-id>`). OpenCode assigns that session
-  id itself on the first turn -- the entrypoint prints it as
+  holding the git clone (if any) and OpenCode's own session state
+  (`HOME=/data` inside the container, so its sqlite session db lands
+  on the volume too). Sleeping costs nothing; waking is just another
+  container run against the same volume, resuming the same OpenCode
+  session (`opencode run ... -s <session-id>`). OpenCode assigns that
+  session id itself on the first turn -- the entrypoint prints it as
   `FACTORY_OPENCODE_SESSION_ID=...` and the scheduler stores it.
-- **State** lives in `data/factory.db` (sqlite) — sessions and a log
-  of everything that happened to each one.
+- **Stopping a turn**: `code` sessions are killed immediately (the
+  container is force-removed). `ask` sessions run their HTTP call on
+  its own `httpx.Client`; stopping closes that client from the API
+  handler's thread, which raises inside the worker thread making the
+  request -- it catches that, logs it, and marks the session
+  `stopped`.
+- **State** lives in `data/factory.db` (sqlite) — sessions, a log of
+  everything that happened to each one, and the repo registry.
 - **UI** (`static/`) is plain HTML/JS served by the same FastAPI app,
   polling `/api/sessions` every few seconds. No build step.
 
@@ -82,12 +112,15 @@ still worth doing on top of it, not done yet:
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # fill in GITHUB_TOKEN, GITHUB_BOT_USERNAME, FACTORY_REPOS
+cp .env.example .env   # fill in GITHUB_TOKEN, GITHUB_BOT_USERNAME; FACTORY_REPOS is optional
 ```
 
-Add the bot account as a collaborator on every repo in `FACTORY_REPOS`
-(or give it org access) — it needs to be assignable to issues and able
-to push branches / open PRs.
+`FACTORY_REPOS` just seeds the repo registry at startup -- more repos
+can be registered later from the UI ("+ repo"), and don't need to be
+known up front if you're only using `ask` sessions. Add the bot
+account as a collaborator on any repo you do register (or give it org
+access) — it needs to be assignable to issues and able to push
+branches / open PRs.
 
 Have a local OpenAI-compatible model server running (LM Studio, etc.)
 and reachable from Docker containers. Defaults assume LM Studio on
@@ -112,10 +145,10 @@ Open `http://127.0.0.1:8787`.
 ```
 app/
   config.py         env settings
-  store.py          sqlite: sessions + session_logs
+  store.py          sqlite: sessions + session_logs + repo registry
   github_client.py  polling: assigned issues, new PR comments
   docker_runner.py  per-turn ephemeral containers on a per-session volume
-  scheduler.py      the state machine
+  scheduler.py      the state machine (ask + code, stop support)
   main.py           FastAPI routes + static UI mount
 agent_image/
   Dockerfile        node+python+git+gh+opencode base image

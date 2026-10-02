@@ -4,54 +4,100 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Agent Factory</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <header>
-    <h1>Agent Factory</h1>
-    <form id="new-session-form">
-      <input id="new-repo" type="text" placeholder="owner/repo" required />
-      <input id="new-issue" type="number" placeholder="issue #" required min="1" />
-      <button type="submit">Start session</button>
-    </form>
-  </header>
-
-  <main>
-    <section id="session-list-pane">
-      <table id="session-table">
-        <thead>
-          <tr>
-            <th>Repo</th>
-            <th>Issue</th>
-            <th>Status</th>
-            <th>PR</th>
-            <th>Updated</th>
-          </tr>
-        </thead>
-        <tbody id="session-rows"></tbody>
-      </table>
-    </section>
-
-    <section id="detail-pane">
-      <div id="detail-empty">Select a session.</div>
-      <div id="detail-content" class="hidden">
-        <div id="detail-header">
-          <h2 id="detail-title"></h2>
-          <div id="detail-meta"></div>
-          <div id="detail-actions">
-            <button id="btn-close">Close</button>
-            <button id="btn-archive">Archive</button>
-            <button id="btn-reopen">Reopen</button>
-          </div>
+  <div id="app">
+    <header>
+      <div class="brand">
+        <span class="brand-mark">⚙</span>
+        <div>
+          <h1>Agent Factory</h1>
+          <p class="subtitle">Local sessions, local model</p>
         </div>
-        <pre id="detail-logs"></pre>
-        <form id="message-form">
-          <textarea id="message-text" placeholder="Message the agent (wakes it)..."></textarea>
-          <button type="submit">Send</button>
-        </form>
       </div>
+      <div id="repo-chips" class="repo-chips"></div>
+    </header>
+
+    <section id="new-session-bar">
+      <div class="type-toggle" id="type-toggle">
+        <button type="button" class="type-btn active" data-type="ask">Ask</button>
+        <button type="button" class="type-btn" data-type="code">Code</button>
+      </div>
+
+      <select id="new-repo" title="Repo (optional)">
+        <option value="">No repo</option>
+      </select>
+
+      <input id="new-issue" type="number" min="1" placeholder="issue # (optional)" title="Issue number (optional)" />
+
+      <input id="new-prompt" type="text" placeholder="Opening message (optional) — leave blank to fill in after creating" />
+
+      <button type="button" id="btn-start-session" class="btn-primary">Start session</button>
+      <button type="button" id="btn-add-repo" class="btn-ghost" title="Register a repo">+ repo</button>
     </section>
-  </main>
+    <div id="add-repo-row" class="add-repo-row hidden">
+      <input id="add-repo-input" type="text" placeholder="owner/repo" />
+      <button type="button" id="btn-add-repo-confirm" class="btn-primary">Register</button>
+      <button type="button" id="btn-add-repo-cancel" class="btn-ghost">Cancel</button>
+    </div>
+
+    <main>
+      <section id="session-list-pane">
+        <table id="session-table">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Repo / Issue</th>
+              <th>Status</th>
+              <th>PR</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody id="session-rows"></tbody>
+        </table>
+        <div id="session-empty" class="empty-state hidden">
+          No sessions yet — start one above.
+        </div>
+      </section>
+
+      <section id="detail-pane">
+        <div id="detail-empty" class="empty-state">Select a session, or start a new one.</div>
+        <div id="detail-content" class="hidden">
+          <div id="detail-header">
+            <div>
+              <span id="detail-type-pill" class="pill"></span>
+              <h2 id="detail-title"></h2>
+            </div>
+            <div id="detail-meta"></div>
+          </div>
+
+          <div id="attach-row" class="attach-row hidden">
+            <select id="attach-repo">
+              <option value="">Attach a repo…</option>
+            </select>
+            <input id="attach-issue" type="number" min="1" placeholder="issue # (optional)" />
+            <button type="button" id="btn-attach" class="btn-primary">Attach</button>
+          </div>
+
+          <div id="detail-actions">
+            <button id="btn-stop" class="btn-danger hidden">Stop</button>
+            <button id="btn-close" class="btn-ghost">Close</button>
+            <button id="btn-archive" class="btn-ghost">Archive</button>
+            <button id="btn-reopen" class="btn-ghost">Reopen</button>
+          </div>
+
+          <pre id="detail-logs"></pre>
+          <form id="message-form">
+            <textarea id="message-text" placeholder="Message the agent…"></textarea>
+            <button type="submit" class="btn-primary">Send</button>
+          </form>
+        </div>
+      </section>
+    </main>
+  </div>
 
   <script src="/static/app.js"></script>
 </body>

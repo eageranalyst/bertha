@@ -56,6 +56,8 @@ class SchedulerThread(threading.Thread):
 async def lifespan(app: FastAPI):
     settings = get_settings()
     store.init_db(settings.db_path)
+    for repo in settings.repos:
+        store.create_repo(repo)
     runner = DockerRunner(settings.agent_image_tag)
     runner.ensure_image(AGENT_IMAGE_DIR)
     gh = GitHubClient(settings.github_token, settings.github_bot_username)
@@ -80,8 +82,19 @@ class MessageIn(BaseModel):
 
 
 class NewSessionIn(BaseModel):
+    session_type: str = "ask"
+    repo: str | None = None
+    issue_number: int | None = None
+    prompt: str | None = None
+
+
+class AttachIn(BaseModel):
     repo: str
-    issue_number: int
+    issue_number: int | None = None
+
+
+class RepoIn(BaseModel):
+    full_name: str
 
 
 def _get_or_404(session_id: int) -> dict:
@@ -115,12 +128,21 @@ def api_send_message(session_id: int, body: MessageIn):
     return store.get_session(session_id)
 
 
+@app.post("/api/sessions/{session_id}/stop")
+def api_stop_session(session_id: int):
+    session = _get_or_404(session_id)
+    scheduler: Scheduler = _state["scheduler"]  # type: ignore[assignment]
+    if not scheduler.stop_turn(session):
+        raise HTTPException(409, "session is not running")
+    return store.get_session(session_id)
+
+
 @app.post("/api/sessions/{session_id}/close")
 def api_close_session(session_id: int):
     session = _get_or_404(session_id)
     scheduler: Scheduler = _state["scheduler"]  # type: ignore[assignment]
-    if session["container_id"]:
-        scheduler.runner.remove(session["container_id"])
+    if session["status"] == "running":
+        scheduler.stop_turn(session)
     store.update_session(session_id, status="closed", container_id=None, pending_message=None)
     store.append_log(session_id, "system", "Closed from UI")
     return store.get_session(session_id)
@@ -144,24 +166,80 @@ def api_reopen_session(session_id: int):
 
 @app.post("/api/sessions")
 def api_new_session(body: NewSessionIn):
-    if store.find_session_by_issue(body.repo, body.issue_number):
-        raise HTTPException(409, "session already exists for this issue")
-    settings = get_settings()
-    gh = GitHubClient(settings.github_token, settings.github_bot_username)
-    try:
-        issue = gh.get_issue(body.repo, body.issue_number)
-    except Exception as exc:
-        raise HTTPException(400, f"could not fetch issue: {exc}") from exc
-    branch = f"factory/issue-{issue['number']}"
-    session_id = store.create_session(
-        repo=body.repo,
-        issue_number=issue["number"],
-        issue_title=issue["title"],
-        branch_name=branch,
-    )
-    store.append_log(session_id, "system", f"Started manually for issue #{issue['number']}")
-    store.set_pending_message(session_id, issue["body"] or issue["title"])
+    if body.session_type not in ("ask", "code"):
+        raise HTTPException(400, "session_type must be 'ask' or 'code'")
+    if body.repo and body.issue_number is not None:
+        if store.find_session_by_issue(body.repo, body.issue_number):
+            raise HTTPException(409, "session already exists for this issue")
+        settings = get_settings()
+        gh = GitHubClient(settings.github_token, settings.github_bot_username)
+        try:
+            issue = gh.get_issue(body.repo, body.issue_number)
+        except Exception as exc:
+            raise HTTPException(400, f"could not fetch issue: {exc}") from exc
+        session_id = store.create_session(
+            session_type=body.session_type,
+            repo=body.repo,
+            issue_number=issue["number"],
+            issue_title=issue["title"],
+            pending_message=body.prompt or issue["body"] or issue["title"],
+        )
+        store.create_repo(body.repo)
+        store.append_log(session_id, "system", f"Started for issue #{issue['number']}")
+    else:
+        session_id = store.create_session(
+            session_type=body.session_type,
+            repo=body.repo,
+            issue_title=(body.prompt or "")[:80],
+            pending_message=body.prompt,
+        )
+        if body.repo:
+            store.create_repo(body.repo)
+        store.append_log(session_id, "system", f"Started a new {body.session_type} session")
     return store.get_session(session_id)
+
+
+@app.post("/api/sessions/{session_id}/attach")
+def api_attach_repo(session_id: int, body: AttachIn):
+    _get_or_404(session_id)
+    fields: dict[str, object] = {"repo": body.repo}
+    if body.issue_number is not None:
+        settings = get_settings()
+        gh = GitHubClient(settings.github_token, settings.github_bot_username)
+        try:
+            issue = gh.get_issue(body.repo, body.issue_number)
+        except Exception as exc:
+            raise HTTPException(400, f"could not fetch issue: {exc}") from exc
+        fields["issue_number"] = issue["number"]
+        fields["issue_title"] = issue["title"]
+        fields["branch_name"] = f"factory/issue-{issue['number']}"
+    else:
+        fields["branch_name"] = f"factory/session-{session_id}"
+    store.update_session(session_id, **fields)
+    store.create_repo(body.repo)
+    detail = f" (issue #{body.issue_number})" if body.issue_number is not None else ""
+    store.append_log(session_id, "system", f"Attached repo {body.repo}{detail}")
+    return store.get_session(session_id)
+
+
+@app.get("/api/repos")
+def api_list_repos():
+    return store.list_repos()
+
+
+@app.post("/api/repos")
+def api_create_repo(body: RepoIn):
+    full_name = body.full_name.strip()
+    if "/" not in full_name:
+        raise HTTPException(400, "expected owner/repo")
+    store.create_repo(full_name)
+    return store.list_repos()
+
+
+@app.delete("/api/repos/{repo_id}")
+def api_delete_repo(repo_id: int):
+    store.delete_repo(repo_id)
+    return store.list_repos()
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

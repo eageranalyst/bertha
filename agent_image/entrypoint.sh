@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# One turn of work: resume (or start) an OpenCode session against a
-# cloned repo at /data/repo, push whatever changed, and open a PR if
-# one doesn't exist yet. Everything under /data is on a volume that
-# outlives this container, so the next turn (a wake-up) just reruns
-# this same script against the same volume.
+# One turn of work: resume (or start) an OpenCode session at /data/repo,
+# push whatever changed, and open a PR if one doesn't exist yet --
+# all of that only if REPO is set. A "code" session isn't required to
+# have a repo attached; without one this just runs the agent against a
+# plain local workspace with no git remote, no push, no PR. Everything
+# under /data is on a volume that outlives this container, so the next
+# turn (a wake-up, or a repo getting attached later) just reruns this
+# same script against the same volume.
 #
 # Permission posture: no --auto. The bash permission block below is a
 # default-deny allowlist ("*": "ask", with specific safe patterns set
@@ -13,9 +16,9 @@
 # needs another build tool; don't switch to --auto to work around it.
 set -euo pipefail
 
-: "${REPO:?REPO env var required}"
+REPO="${REPO:-}"
+BRANCH_NAME="${BRANCH_NAME:-}"
 : "${GITHUB_TOKEN:?GITHUB_TOKEN env var required}"
-: "${BRANCH_NAME:?BRANCH_NAME env var required}"
 : "${PROMPT:?PROMPT env var required}"
 : "${OPENCODE_MODEL:?OPENCODE_MODEL env var required}"
 : "${LOCAL_MODEL_PROVIDER:?LOCAL_MODEL_PROVIDER env var required}"
@@ -91,17 +94,26 @@ git config --global credential.helper \
 git config --global --add safe.directory /data/repo
 
 cd /data
-if [ ! -d repo/.git ]; then
-    echo "=== Cloning $REPO ==="
-    git clone "https://github.com/${REPO}.git" repo
-fi
-cd repo
-
-if git ls-remote --exit-code --heads origin "$BRANCH_NAME" >/dev/null 2>&1; then
-    git fetch origin "$BRANCH_NAME"
-    git checkout -B "$BRANCH_NAME" "origin/$BRANCH_NAME"
+if [ -n "$REPO" ]; then
+    if [ ! -d repo/.git ]; then
+        echo "=== Cloning $REPO ==="
+        git clone "https://github.com/${REPO}.git" repo
+    fi
+    cd repo
+    if git ls-remote --exit-code --heads origin "$BRANCH_NAME" >/dev/null 2>&1; then
+        git fetch origin "$BRANCH_NAME"
+        git checkout -B "$BRANCH_NAME" "origin/$BRANCH_NAME"
+    else
+        git checkout -b "$BRANCH_NAME"
+    fi
 else
-    git checkout -b "$BRANCH_NAME"
+    echo "=== No repo attached, working in a plain local workspace ==="
+    mkdir -p repo
+    cd repo
+    if [ ! -d .git ]; then
+        git init -q
+        git commit -q --allow-empty -m "factory: workspace init"
+    fi
 fi
 
 echo "=== Running agent (opencode session ${OPENCODE_SESSION_ID:-<new>}, model $OPENCODE_MODEL) ==="
@@ -123,28 +135,30 @@ if [ -n "$NEW_SESSION_ID" ]; then
     echo "FACTORY_OPENCODE_SESSION_ID=${NEW_SESSION_ID}"
 fi
 
-if [ -n "$(git status --porcelain)" ]; then
-    git add -A
-    git commit -m "${COMMIT_MESSAGE:-agent: apply changes for $BRANCH_NAME}" >/dev/null
-    git push origin "$BRANCH_NAME"
-    echo "FACTORY_PUSHED=1"
-else
-    echo "FACTORY_PUSHED=0"
-fi
-
-if [ -z "${PR_NUMBER:-}" ] || [ "${PR_NUMBER}" = "0" ]; then
-    set +e
-    PR_OUTPUT=$(gh pr create --repo "$REPO" --head "$BRANCH_NAME" \
-        --title "${PR_TITLE:-Agent: $BRANCH_NAME}" \
-        --body "${PR_BODY:-Automated changes from factory agent.}" 2>&1)
-    PR_STATUS=$?
-    set -e
-    echo "$PR_OUTPUT"
-    if [ $PR_STATUS -eq 0 ]; then
-        PR_NUM=$(echo "$PR_OUTPUT" | grep -oE '/pull/[0-9]+' | grep -oE '[0-9]+' | tail -1)
-        echo "FACTORY_PR_NUMBER=${PR_NUM}"
+if [ -n "$REPO" ]; then
+    if [ -n "$(git status --porcelain)" ]; then
+        git add -A
+        git commit -m "${COMMIT_MESSAGE:-agent: apply changes for $BRANCH_NAME}" >/dev/null
+        git push origin "$BRANCH_NAME"
+        echo "FACTORY_PUSHED=1"
     else
-        echo "FACTORY_PR_CREATE_FAILED=1"
+        echo "FACTORY_PUSHED=0"
+    fi
+
+    if [ -z "${PR_NUMBER:-}" ] || [ "${PR_NUMBER}" = "0" ]; then
+        set +e
+        PR_OUTPUT=$(gh pr create --repo "$REPO" --head "$BRANCH_NAME" \
+            --title "${PR_TITLE:-Agent: $BRANCH_NAME}" \
+            --body "${PR_BODY:-Automated changes from factory agent.}" 2>&1)
+        PR_STATUS=$?
+        set -e
+        echo "$PR_OUTPUT"
+        if [ $PR_STATUS -eq 0 ]; then
+            PR_NUM=$(echo "$PR_OUTPUT" | grep -oE '/pull/[0-9]+' | grep -oE '[0-9]+' | tail -1)
+            echo "FACTORY_PR_NUMBER=${PR_NUM}"
+        else
+            echo "FACTORY_PR_CREATE_FAILED=1"
+        fi
     fi
 fi
 

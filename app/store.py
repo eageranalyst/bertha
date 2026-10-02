@@ -1,9 +1,9 @@
-"""SQLite-backed state for sessions and their logs.
+"""SQLite-backed state for sessions, their logs, and the repo registry.
 
-Single-process, single-thread-at-a-time usage (one asyncio event loop
-driving both the FastAPI handlers and the scheduler tick), so a fresh
-short-lived connection per call is simple and fast enough for a local
-tool. No ORM: the schema is small and the queries are simple.
+Single-process, single-thread-at-a-time usage (the scheduler's own
+background thread and FastAPI's threadpool both call in here), so a
+fresh short-lived connection per call is simple and fast enough for a
+local tool. No ORM: the schema is small and the queries are simple.
 """
 
 import sqlite3
@@ -16,11 +16,12 @@ _DB_PATH: str | None = None
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    repo TEXT NOT NULL,
-    issue_number INTEGER NOT NULL,
+    session_type TEXT NOT NULL DEFAULT 'code',
+    repo TEXT,
+    issue_number INTEGER,
     issue_title TEXT NOT NULL DEFAULT '',
     pr_number INTEGER,
-    branch_name TEXT NOT NULL,
+    branch_name TEXT,
     harness_session_id TEXT,
     status TEXT NOT NULL DEFAULT 'queued',
     container_id TEXT,
@@ -29,8 +30,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     last_activity_at REAL NOT NULL,
     pending_message TEXT,
     created_at REAL NOT NULL,
-    updated_at REAL NOT NULL,
-    UNIQUE(repo, issue_number)
+    updated_at REAL NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS session_logs (
@@ -42,6 +42,12 @@ CREATE TABLE IF NOT EXISTS session_logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_session_logs_session ON session_logs(session_id);
+
+CREATE TABLE IF NOT EXISTS repos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    full_name TEXT NOT NULL UNIQUE,
+    created_at REAL NOT NULL
+);
 """
 
 
@@ -67,21 +73,28 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 def create_session(
     *,
-    repo: str,
-    issue_number: int,
-    issue_title: str,
-    branch_name: str,
+    session_type: str = "code",
+    repo: str | None = None,
+    issue_number: int | None = None,
+    issue_title: str = "",
+    branch_name: str | None = None,
+    pending_message: str | None = None,
 ) -> int:
     now = time.time()
+    # Nothing to run yet without an opening message -- sit idle (e.g. a
+    # bare session created with nothing filled in) rather than launching
+    # a turn with an empty prompt.
+    status = "queued" if pending_message else "idle"
     with _connect() as conn:
         cur = conn.execute(
             """
             INSERT INTO sessions
-                (repo, issue_number, issue_title, branch_name,
-                 status, last_activity_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, 'queued', ?, ?, ?)
+                (session_type, repo, issue_number, issue_title, branch_name,
+                 pending_message, status, last_activity_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (repo, issue_number, issue_title, branch_name, now, now, now),
+            (session_type, repo, issue_number, issue_title, branch_name,
+             pending_message, status, now, now, now),
         )
         return cur.lastrowid
 
@@ -113,6 +126,10 @@ def list_sessions(status: str | None = None) -> list[dict[str, Any]]:
 
 
 _ALLOWED_FIELDS = {
+    "repo",
+    "issue_number",
+    "issue_title",
+    "branch_name",
     "pr_number",
     "status",
     "container_id",
@@ -163,3 +180,22 @@ def list_logs(session_id: int, limit: int = 500) -> list[dict[str, Any]]:
             (session_id, limit),
         ).fetchall()
         return [_row_to_dict(r) for r in reversed(rows)]
+
+
+def create_repo(full_name: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO repos (full_name, created_at) VALUES (?, ?)",
+            (full_name, time.time()),
+        )
+
+
+def list_repos() -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM repos ORDER BY full_name ASC").fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+
+def delete_repo(repo_id: int) -> None:
+    with _connect() as conn:
+        conn.execute("DELETE FROM repos WHERE id = ?", (repo_id,))
