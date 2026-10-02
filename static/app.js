@@ -42,11 +42,6 @@ function repoOptionsHtml(selectedValue) {
   return html;
 }
 
-function renderRepoChips() {
-  document.getElementById("repo-chips").innerHTML =
-    repos.map((r) => `<span class="repo-chip">${escapeHtml(r.full_name)}</span>`).join("");
-}
-
 function renderRepoSelect() {
   document.getElementById("compose-repo").innerHTML = repoOptionsHtml("");
 }
@@ -115,7 +110,6 @@ function render() {
 
 async function refreshRepos() {
   repos = await api("/api/repos");
-  renderRepoChips();
   renderRepoSelect();
 }
 
