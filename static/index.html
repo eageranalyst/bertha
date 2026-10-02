@@ -21,43 +21,12 @@
       <div id="repo-chips" class="repo-chips"></div>
     </header>
 
-    <section id="new-session-bar">
-      <div class="type-toggle" id="type-toggle">
-        <button type="button" class="type-btn active" data-type="ask">Ask</button>
-        <button type="button" class="type-btn" data-type="code">Code</button>
-      </div>
-
-      <select id="new-repo" title="Repo (optional)">
-        <option value="">No repo</option>
-      </select>
-
-      <input id="new-issue" type="number" min="1" placeholder="issue # (optional)" title="Issue number (optional)" />
-
-      <input id="new-prompt" type="text" placeholder="Opening message (optional) — leave blank to fill in after creating" />
-
-      <button type="button" id="btn-start-session" class="btn-primary">Start session</button>
-      <button type="button" id="btn-add-repo" class="btn-ghost" title="Register a repo">+ repo</button>
-    </section>
-    <div id="add-repo-row" class="add-repo-row hidden">
-      <input id="add-repo-input" type="text" placeholder="owner/repo" />
-      <button type="button" id="btn-add-repo-confirm" class="btn-primary">Register</button>
-      <button type="button" id="btn-add-repo-cancel" class="btn-ghost">Cancel</button>
-    </div>
-
     <main>
       <section id="session-list-pane">
-        <table id="session-table">
-          <thead>
-            <tr>
-              <th>Type</th>
-              <th>Repo / Issue</th>
-              <th>Status</th>
-              <th>PR</th>
-              <th>Updated</th>
-            </tr>
-          </thead>
-          <tbody id="session-rows"></tbody>
-        </table>
+        <div class="list-pane-header">
+          <button type="button" id="btn-new-session" class="btn-primary btn-block">+ New session</button>
+        </div>
+        <div id="session-rows"></div>
         <div id="session-empty" class="empty-state hidden">
           No sessions yet — start one above.
         </div>
@@ -65,21 +34,33 @@
 
       <section id="detail-pane">
         <div id="detail-empty" class="empty-state">Select a session, or start a new one.</div>
+
+        <!-- draft compose mode: shown for an unsaved new session -->
+        <div id="compose-content" class="hidden">
+          <h2 class="compose-heading">New session</h2>
+          <textarea id="compose-prompt" placeholder="What do you want to ask or build?" autofocus></textarea>
+          <div class="compose-row">
+            <label for="compose-repo">Repo</label>
+            <select id="compose-repo">
+              <option value="">No repo</option>
+            </select>
+          </div>
+          <div class="compose-actions">
+            <button type="button" id="btn-start-ask" class="btn-primary">Ask</button>
+            <button type="button" id="btn-start-code" class="btn-primary btn-code">Code</button>
+          </div>
+          <p class="compose-hint">Nothing is saved until you hit Ask or Code.</p>
+        </div>
+
+        <!-- normal session mode -->
         <div id="detail-content" class="hidden">
           <div id="detail-header">
             <div>
               <span id="detail-type-pill" class="pill"></span>
+              <span id="detail-ref" class="ref"></span>
               <h2 id="detail-title"></h2>
             </div>
             <div id="detail-meta"></div>
-          </div>
-
-          <div id="attach-row" class="attach-row hidden">
-            <select id="attach-repo">
-              <option value="">Attach a repo…</option>
-            </select>
-            <input id="attach-issue" type="number" min="1" placeholder="issue # (optional)" />
-            <button type="button" id="btn-attach" class="btn-primary">Attach</button>
           </div>
 
           <div id="detail-actions">

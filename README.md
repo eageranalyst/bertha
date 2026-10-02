@@ -7,18 +7,31 @@ wakes itself back up to act on them. A local web UI lists every
 session and lets you message, stop, close, archive, or start one by
 hand.
 
+**Creating a session is a two-step, nothing-saved-until-you-commit
+flow**: click "+ New session" and a draft appears on the left (purely
+client-side -- nothing on the server yet) while a compose box opens on
+the right. Type a prompt, optionally pick a repo, then hit **Ask** or
+**Code** -- that's the one API call that actually creates the session
+and kicks off the first turn. Click away to a different session
+instead, and the draft just disappears; nothing was ever saved.
+
 Two session types:
 - **ask** -- no repo, no container. The prompt (plus that session's
   own history) is proxied straight to the local model over HTTP from
   a background thread; fastest path, nothing to set up.
 - **code** -- a container against a persistent per-session volume,
   full filesystem + OpenCode. A repo is optional even here: without
-  one it's just a scratch workspace (no git remote, no push, no PR);
-  attach a repo (and optionally an issue) at creation or any time
-  afterward from the UI to get the clone/checkout/push/PR flow.
+  one it's just a scratch workspace (no git remote, no push, no PR).
 
-A session can be started with nothing filled in at all -- it just
-sits `idle` until you send it a first message from the UI.
+There's no issue field in the UI -- mention an issue number in the
+prompt text if it's relevant. (A bot-assigned GitHub issue still
+creates its own `code` session automatically via the discovery loop,
+independent of the manual creation flow -- see below.)
+
+Each session gets a short `ref` (e.g. `a1b2c3d`) and a `title`
+derived from its opening prompt, shown in the left-hand list alongside
+status and any associated PR, ordered by whichever happened most
+recently -- a user message, a model response, or a status change.
 
 No cloud control plane, no webhooks, no multi-tenant auth: this is a
 single-user, single-machine tool. GitHub is only ever polled, never
@@ -84,9 +97,9 @@ still worth doing on top of it, not done yet:
      seen (skipping the bot's own comments, so it never wakes itself)
      and queues a new turn with those comments as the prompt
 - **A session with a pending message is always what drives the next
-  turn** -- a fresh issue's body, a UI message, a new PR comment, or
-  an `attach` call all just set `pending_message` and let the same
-  promotion logic pick it up on the next tick.
+  turn** -- a fresh issue's body, the opening prompt from creation, a
+  UI message, or a new PR comment all just set `pending_message` and
+  let the same promotion logic pick it up on the next tick.
 - **Code sessions never keep a container running.** Each turn is one
   `docker run` against a persistent named volume (`factory-ws-<id>`)
   holding the git clone (if any) and OpenCode's own session state
@@ -115,12 +128,12 @@ pip install -r requirements.txt
 cp .env.example .env   # fill in GITHUB_TOKEN, GITHUB_BOT_USERNAME; FACTORY_REPOS is optional
 ```
 
-`FACTORY_REPOS` just seeds the repo registry at startup -- more repos
-can be registered later from the UI ("+ repo"), and don't need to be
-known up front if you're only using `ask` sessions. Add the bot
-account as a collaborator on any repo you do register (or give it org
-access) — it needs to be assignable to issues and able to push
-branches / open PRs.
+`FACTORY_REPOS` seeds the repo registry at startup -- for now that's
+the only way to register one (kept deliberately simple: no "add repo"
+control in the UI yet, `POST /api/repos` exists if you want to script
+it). Add the bot account as a collaborator on any repo you list there
+(or give it org access) — it needs to be assignable to issues and
+able to push branches / open PRs.
 
 Have a local OpenAI-compatible model server running (LM Studio, etc.)
 and reachable from Docker containers. Defaults assume LM Studio on

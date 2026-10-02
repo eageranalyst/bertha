@@ -8,6 +8,7 @@ local tool. No ORM: the schema is small and the queries are simple.
 
 import sqlite3
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -16,10 +17,11 @@ _DB_PATH: str | None = None
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ref TEXT NOT NULL,
     session_type TEXT NOT NULL DEFAULT 'code',
     repo TEXT,
     issue_number INTEGER,
-    issue_title TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
     pr_number INTEGER,
     branch_name TEXT,
     harness_session_id TEXT,
@@ -76,11 +78,12 @@ def create_session(
     session_type: str = "code",
     repo: str | None = None,
     issue_number: int | None = None,
-    issue_title: str = "",
+    title: str = "",
     branch_name: str | None = None,
     pending_message: str | None = None,
 ) -> int:
     now = time.time()
+    ref = uuid.uuid4().hex[:7]
     # Nothing to run yet without an opening message -- sit idle (e.g. a
     # bare session created with nothing filled in) rather than launching
     # a turn with an empty prompt.
@@ -89,11 +92,11 @@ def create_session(
         cur = conn.execute(
             """
             INSERT INTO sessions
-                (session_type, repo, issue_number, issue_title, branch_name,
+                (ref, session_type, repo, issue_number, title, branch_name,
                  pending_message, status, last_activity_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (session_type, repo, issue_number, issue_title, branch_name,
+            (ref, session_type, repo, issue_number, title, branch_name,
              pending_message, status, now, now, now),
         )
         return cur.lastrowid
@@ -128,7 +131,7 @@ def list_sessions(status: str | None = None) -> list[dict[str, Any]]:
 _ALLOWED_FIELDS = {
     "repo",
     "issue_number",
-    "issue_title",
+    "title",
     "branch_name",
     "pr_number",
     "status",

@@ -1,18 +1,19 @@
 const sessionRows = document.getElementById("session-rows");
 const sessionEmpty = document.getElementById("session-empty");
 const detailEmpty = document.getElementById("detail-empty");
+const composeContent = document.getElementById("compose-content");
 const detailContent = document.getElementById("detail-content");
 const detailTitle = document.getElementById("detail-title");
+const detailRef = document.getElementById("detail-ref");
 const detailTypePill = document.getElementById("detail-type-pill");
 const detailMeta = document.getElementById("detail-meta");
 const detailLogs = document.getElementById("detail-logs");
-const attachRow = document.getElementById("attach-row");
 const btnStop = document.getElementById("btn-stop");
 
-let selectedId = null;
+let selectedId = null; // number (real session) | "draft" | null
+let draftActive = false;
 let sessions = [];
 let repos = [];
-let newSessionType = "ask";
 
 async function api(path, opts) {
   const res = await fetch(path, {
@@ -33,7 +34,7 @@ function escapeHtml(s) {
 }
 
 function repoOptionsHtml(selectedValue) {
-  let html = `<option value="">${repos.length ? "No repo" : "No repos registered"}</option>`;
+  let html = `<option value="">No repo</option>`;
   for (const r of repos) {
     const sel = r.full_name === selectedValue ? "selected" : "";
     html += `<option value="${escapeHtml(r.full_name)}" ${sel}>${escapeHtml(r.full_name)}</option>`;
@@ -42,82 +43,160 @@ function repoOptionsHtml(selectedValue) {
 }
 
 function renderRepoChips() {
-  const el = document.getElementById("repo-chips");
-  el.innerHTML = repos.map((r) => `<span class="repo-chip">${escapeHtml(r.full_name)}</span>`).join("");
+  document.getElementById("repo-chips").innerHTML =
+    repos.map((r) => `<span class="repo-chip">${escapeHtml(r.full_name)}</span>`).join("");
 }
 
-function renderRepoSelects() {
-  document.getElementById("new-repo").innerHTML = repoOptionsHtml("");
-  document.getElementById("attach-repo").innerHTML = repoOptionsHtml("");
+function renderRepoSelect() {
+  document.getElementById("compose-repo").innerHTML = repoOptionsHtml("");
 }
+
+// -- view switching ----------------------------------------------------
+
+function showEmpty() {
+  detailEmpty.classList.remove("hidden");
+  composeContent.classList.add("hidden");
+  detailContent.classList.add("hidden");
+}
+function showCompose() {
+  detailEmpty.classList.add("hidden");
+  composeContent.classList.remove("hidden");
+  detailContent.classList.add("hidden");
+}
+function showDetail() {
+  detailEmpty.classList.add("hidden");
+  composeContent.classList.add("hidden");
+  detailContent.classList.remove("hidden");
+}
+
+// -- session list -------------------------------------------------------
 
 function render() {
   sessionRows.innerHTML = "";
-  sessionEmpty.classList.toggle("hidden", sessions.length > 0);
-  for (const s of sessions) {
-    const tr = document.createElement("tr");
-    tr.className = s.id === selectedId ? "selected" : "";
-    const repoLabel = s.repo
-      ? `${escapeHtml(s.repo)}${s.issue_number ? ` #${s.issue_number}` : ""}`
-      : `<span class="none">no repo</span>`;
-    tr.innerHTML = `
-      <td><span class="pill pill-type-${s.session_type}">${s.session_type}</span></td>
-      <td class="cell-repo">${repoLabel}</td>
-      <td><span class="status status-${s.status}">${s.status}</span></td>
-      <td>${s.pr_number ? `<a href="https://github.com/${s.repo}/pull/${s.pr_number}" target="_blank">#${s.pr_number}</a>` : "-"}</td>
-      <td>${fmtTime(s.updated_at)}</td>
+  sessionEmpty.classList.toggle("hidden", sessions.length > 0 || draftActive);
+
+  if (draftActive) {
+    const row = document.createElement("div");
+    row.className = "session-row is-draft" + (selectedId === "draft" ? " selected" : "");
+    row.innerHTML = `
+      <div class="session-row-top">
+        <span class="session-row-title">New session</span>
+      </div>
+      <div class="session-row-meta"><span class="ref">draft</span></div>
     `;
-    tr.addEventListener("click", () => selectSession(s.id));
-    sessionRows.appendChild(tr);
+    row.addEventListener("click", () => selectDraft());
+    sessionRows.appendChild(row);
+  }
+
+  for (const s of sessions) {
+    const row = document.createElement("div");
+    row.className = "session-row" + (s.id === selectedId ? " selected" : "");
+    const repoLabel = s.repo ? escapeHtml(s.repo) : "no repo";
+    const prBit = s.pr_number
+      ? ` <span class="sep">·</span> <a href="https://github.com/${s.repo}/pull/${s.pr_number}" target="_blank" onclick="event.stopPropagation()">PR #${s.pr_number}</a>`
+      : "";
+    row.innerHTML = `
+      <div class="session-row-top">
+        <span class="pill pill-type-${s.session_type}">${s.session_type}</span>
+        <span class="session-row-title">${escapeHtml(s.title || "(untitled)")}</span>
+        <span class="status status-${s.status}">${s.status}</span>
+      </div>
+      <div class="session-row-meta">
+        <span class="ref">${s.ref}</span>
+        <span class="sep">·</span>
+        <span>${repoLabel}</span>
+        ${prBit}
+      </div>
+    `;
+    row.addEventListener("click", () => selectSession(s.id));
+    sessionRows.appendChild(row);
   }
 }
 
 async function refreshRepos() {
   repos = await api("/api/repos");
   renderRepoChips();
-  renderRepoSelects();
+  renderRepoSelect();
 }
 
 async function refreshSessions() {
   sessions = await api("/api/sessions");
   render();
-  if (selectedId) await refreshDetail();
+  if (typeof selectedId === "number") await refreshDetail();
 }
 
+// -- draft (unsaved) session --------------------------------------------
+
+function selectDraft() {
+  selectedId = "draft";
+  render();
+  showCompose();
+}
+
+function startDraft() {
+  draftActive = true;
+  document.getElementById("compose-prompt").value = "";
+  document.getElementById("compose-repo").value = "";
+  selectDraft();
+}
+
+function discardDraft() {
+  draftActive = false;
+  if (selectedId === "draft") selectedId = null;
+  render();
+  showEmpty();
+}
+
+async function submitDraft(sessionType) {
+  const prompt = document.getElementById("compose-prompt").value.trim() || null;
+  const repo = document.getElementById("compose-repo").value || null;
+  try {
+    const session = await api("/api/sessions", {
+      method: "POST",
+      body: JSON.stringify({ session_type: sessionType, repo, prompt }),
+    });
+    draftActive = false;
+    await refreshSessions();
+    await selectSession(session.id);
+  } catch (err) {
+    alert(`Could not start session: ${err.message}`);
+  }
+}
+
+// -- real session detail -------------------------------------------------
+
 async function selectSession(id) {
+  draftActive = false; // navigating away from any pending draft discards it
   selectedId = id;
   render();
   await refreshDetail();
 }
 
 async function refreshDetail() {
-  if (!selectedId) return;
+  if (typeof selectedId !== "number") return;
   let session;
   try {
     session = await api(`/api/sessions/${selectedId}`);
   } catch {
     selectedId = null;
-    detailEmpty.classList.remove("hidden");
-    detailContent.classList.add("hidden");
+    showEmpty();
     return;
   }
   const logs = await api(`/api/sessions/${selectedId}/logs`);
 
-  detailEmpty.classList.add("hidden");
-  detailContent.classList.remove("hidden");
+  showDetail();
 
   detailTypePill.textContent = session.session_type;
   detailTypePill.className = `pill pill-type-${session.session_type}`;
-  detailTitle.textContent = session.repo
-    ? `${session.repo}${session.issue_number ? `#${session.issue_number}` : ""} — ${session.issue_title || "(untitled)"}`
-    : (session.issue_title || `Session #${session.id}`);
+  detailRef.textContent = session.ref;
+  detailTitle.textContent = session.title || "(untitled)";
   detailMeta.innerHTML =
     `<span class="status status-${session.status}">${session.status}</span>` +
+    (session.repo ? ` · ${escapeHtml(session.repo)}` : " · no repo") +
     (session.pr_number ? ` · PR #${session.pr_number}` : "") +
     ` · ${session.turn_count} turn${session.turn_count === 1 ? "" : "s"}` +
     ` · ${fmtTime(session.last_activity_at)}`;
 
-  attachRow.classList.toggle("hidden", !!session.repo);
   btnStop.classList.toggle("hidden", session.status !== "running");
 
   const atBottom = detailLogs.scrollTop + detailLogs.clientHeight >= detailLogs.scrollHeight - 20;
@@ -130,85 +209,15 @@ async function refreshDetail() {
   if (atBottom) detailLogs.scrollTop = detailLogs.scrollHeight;
 }
 
-// -- type toggle ------------------------------------------------------
+// -- wiring ---------------------------------------------------------------
 
-document.getElementById("type-toggle").addEventListener("click", (e) => {
-  const btn = e.target.closest(".type-btn");
-  if (!btn) return;
-  newSessionType = btn.dataset.type;
-  for (const b of document.querySelectorAll(".type-btn")) b.classList.toggle("active", b === btn);
-});
-
-// -- new session ------------------------------------------------------
-
-document.getElementById("btn-start-session").addEventListener("click", async () => {
-  const repo = document.getElementById("new-repo").value || null;
-  const issueVal = document.getElementById("new-issue").value;
-  const issue_number = repo && issueVal ? parseInt(issueVal, 10) : null;
-  const prompt = document.getElementById("new-prompt").value.trim() || null;
-  try {
-    const session = await api("/api/sessions", {
-      method: "POST",
-      body: JSON.stringify({ session_type: newSessionType, repo, issue_number, prompt }),
-    });
-    document.getElementById("new-issue").value = "";
-    document.getElementById("new-prompt").value = "";
-    await refreshSessions();
-    selectSession(session.id);
-  } catch (err) {
-    alert(`Could not start session: ${err.message}`);
-  }
-});
-
-// -- repo registration --------------------------------------------------
-
-const addRepoRow = document.getElementById("add-repo-row");
-document.getElementById("btn-add-repo").addEventListener("click", () => {
-  addRepoRow.classList.toggle("hidden");
-  document.getElementById("add-repo-input").focus();
-});
-document.getElementById("btn-add-repo-cancel").addEventListener("click", () => {
-  addRepoRow.classList.add("hidden");
-});
-document.getElementById("btn-add-repo-confirm").addEventListener("click", async () => {
-  const input = document.getElementById("add-repo-input");
-  const full_name = input.value.trim();
-  if (!full_name) return;
-  try {
-    await api("/api/repos", { method: "POST", body: JSON.stringify({ full_name }) });
-    input.value = "";
-    addRepoRow.classList.add("hidden");
-    await refreshRepos();
-  } catch (err) {
-    alert(`Could not register repo: ${err.message}`);
-  }
-});
-
-// -- attach repo to an existing session ----------------------------------
-
-document.getElementById("btn-attach").addEventListener("click", async () => {
-  if (!selectedId) return;
-  const repo = document.getElementById("attach-repo").value;
-  if (!repo) return;
-  const issueVal = document.getElementById("attach-issue").value;
-  const issue_number = issueVal ? parseInt(issueVal, 10) : null;
-  try {
-    await api(`/api/sessions/${selectedId}/attach`, {
-      method: "POST",
-      body: JSON.stringify({ repo, issue_number }),
-    });
-    document.getElementById("attach-issue").value = "";
-    await refreshSessions();
-  } catch (err) {
-    alert(`Could not attach repo: ${err.message}`);
-  }
-});
-
-// -- message / actions --------------------------------------------------
+document.getElementById("btn-new-session").addEventListener("click", startDraft);
+document.getElementById("btn-start-ask").addEventListener("click", () => submitDraft("ask"));
+document.getElementById("btn-start-code").addEventListener("click", () => submitDraft("code"));
 
 document.getElementById("message-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  if (!selectedId) return;
+  if (typeof selectedId !== "number") return;
   const textarea = document.getElementById("message-text");
   const text = textarea.value.trim();
   if (!text) return;
@@ -221,7 +230,7 @@ document.getElementById("message-form").addEventListener("submit", async (e) => 
 });
 
 btnStop.addEventListener("click", async () => {
-  if (!selectedId) return;
+  if (typeof selectedId !== "number") return;
   try {
     await api(`/api/sessions/${selectedId}/stop`, { method: "POST" });
   } catch (err) {
@@ -231,19 +240,19 @@ btnStop.addEventListener("click", async () => {
 });
 
 document.getElementById("btn-close").addEventListener("click", async () => {
-  if (!selectedId) return;
+  if (typeof selectedId !== "number") return;
   await api(`/api/sessions/${selectedId}/close`, { method: "POST" });
   await refreshSessions();
 });
 
 document.getElementById("btn-archive").addEventListener("click", async () => {
-  if (!selectedId) return;
+  if (typeof selectedId !== "number") return;
   await api(`/api/sessions/${selectedId}/archive`, { method: "POST" });
   await refreshSessions();
 });
 
 document.getElementById("btn-reopen").addEventListener("click", async () => {
-  if (!selectedId) return;
+  if (typeof selectedId !== "number") return;
   await api(`/api/sessions/${selectedId}/reopen`, { method: "POST" });
   await refreshSessions();
 });

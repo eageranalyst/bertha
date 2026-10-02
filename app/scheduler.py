@@ -109,7 +109,7 @@ class Scheduler:
             session_type="code",
             repo=repo,
             issue_number=issue["number"],
-            issue_title=issue["title"],
+            title=issue["title"],
             branch_name=branch,
             pending_message=issue["body"] or issue["title"],
         )
@@ -205,7 +205,7 @@ class Scheduler:
     # -- code turns: a container against a persistent per-session volume -
 
     def _launch_code_turn(self, session: dict[str, Any]) -> None:
-        prompt = session["pending_message"] or session["issue_title"] or ""
+        prompt = session["pending_message"] or session["title"] or ""
         is_resume = bool(session["harness_session_id"])
         branch_name = session["branch_name"] or f"factory/session-{session['id']}"
         env = {
@@ -223,8 +223,8 @@ class Scheduler:
             "BOT_EMAIL": self.settings.bot_email,
             "PR_NUMBER": str(session["pr_number"] or ""),
             "PR_TITLE": (
-                f"{session['issue_title']} (closes #{session['issue_number']})"
-                if session["issue_number"] else (session["issue_title"] or branch_name)
+                f"{session['title']} (closes #{session['issue_number']})"
+                if session["issue_number"] else (session["title"] or branch_name)
             ),
             "PR_BODY": (
                 f"Automated changes for #{session['issue_number']}.\n\n"
