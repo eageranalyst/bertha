@@ -9,8 +9,6 @@ simple: nothing here needs to be async.
 
 import logging
 import threading
-import time
-import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -160,7 +158,6 @@ def api_new_session(body: NewSessionIn):
         issue_number=issue["number"],
         issue_title=issue["title"],
         branch_name=branch,
-        claude_session_id=str(uuid.uuid4()),
     )
     store.append_log(session_id, "system", f"Started manually for issue #{issue['number']}")
     store.set_pending_message(session_id, issue["body"] or issue["title"])

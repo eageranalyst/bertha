@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     issue_title TEXT NOT NULL DEFAULT '',
     pr_number INTEGER,
     branch_name TEXT NOT NULL,
-    claude_session_id TEXT NOT NULL,
+    harness_session_id TEXT,
     status TEXT NOT NULL DEFAULT 'queued',
     container_id TEXT,
     turn_count INTEGER NOT NULL DEFAULT 0,
@@ -71,18 +71,17 @@ def create_session(
     issue_number: int,
     issue_title: str,
     branch_name: str,
-    claude_session_id: str,
 ) -> int:
     now = time.time()
     with _connect() as conn:
         cur = conn.execute(
             """
             INSERT INTO sessions
-                (repo, issue_number, issue_title, branch_name, claude_session_id,
+                (repo, issue_number, issue_title, branch_name,
                  status, last_activity_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?)
+            VALUES (?, ?, ?, ?, 'queued', ?, ?, ?)
             """,
-            (repo, issue_number, issue_title, branch_name, claude_session_id, now, now, now),
+            (repo, issue_number, issue_title, branch_name, now, now, now),
         )
         return cur.lastrowid
 
@@ -121,6 +120,7 @@ _ALLOWED_FIELDS = {
     "last_seen_comment_id",
     "last_activity_at",
     "pending_message",
+    "harness_session_id",
 }
 
 

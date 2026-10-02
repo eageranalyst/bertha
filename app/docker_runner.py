@@ -49,6 +49,10 @@ class DockerRunner:
             self.image_tag,
             environment=env,
             volumes={volume: {"bind": "/data", "mode": "rw"}},
+            # Docker Desktop (macOS/Windows) already resolves this; on Linux
+            # Docker Engine it needs this explicit mapping to reach a model
+            # server bound to localhost on the host.
+            extra_hosts={"host.docker.internal": "host-gateway"},
             detach=True,
             name=f"factory-turn-{session_id}-{container_suffix()}",
         )

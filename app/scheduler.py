@@ -19,7 +19,6 @@ Session lifecycle:
 
 import logging
 import time
-import uuid
 from typing import Any
 
 from . import store
@@ -67,7 +66,6 @@ class Scheduler:
             issue_number=issue["number"],
             issue_title=issue["title"],
             branch_name=branch,
-            claude_session_id=str(uuid.uuid4()),
         )
         store.append_log(
             session_id, "system", f"Picked up issue #{issue['number']}: {issue['title']}"
@@ -95,15 +93,18 @@ class Scheduler:
 
     def _launch_turn(self, session: dict[str, Any]) -> None:
         prompt = session["pending_message"] or session["issue_title"]
-        is_resume = session["turn_count"] > 0
+        is_resume = bool(session["harness_session_id"])
         env = {
             "REPO": session["repo"],
             "GITHUB_TOKEN": self.settings.github_token,
-            "ANTHROPIC_API_KEY": self.settings.anthropic_api_key,
             "BRANCH_NAME": session["branch_name"],
             "PROMPT": prompt,
-            "CLAUDE_SESSION_ID": session["claude_session_id"],
-            "IS_RESUME": "1" if is_resume else "0",
+            "OPENCODE_SESSION_ID": session["harness_session_id"] or "",
+            "OPENCODE_MODEL": self.settings.opencode_model_ref,
+            "LOCAL_MODEL_PROVIDER": self.settings.local_model_provider,
+            "LOCAL_MODEL_BASE_URL": self.settings.local_model_base_url,
+            "LOCAL_MODEL_KEY": self.settings.local_model_key,
+            "LOCAL_MODEL_ID": self.settings.local_model_id,
             "BOT_NAME": self.settings.bot_name,
             "BOT_EMAIL": self.settings.bot_email,
             "PR_NUMBER": str(session["pr_number"] or ""),
@@ -151,11 +152,16 @@ class Scheduler:
         self.runner.remove(session["container_id"])
 
         pr_number = session["pr_number"]
+        harness_session_id = session["harness_session_id"]
         for line in logs.splitlines():
             if line.startswith("FACTORY_PR_NUMBER="):
                 value = line.split("=", 1)[1].strip()
                 if value.isdigit():
                     pr_number = int(value)
+            elif line.startswith("FACTORY_OPENCODE_SESSION_ID="):
+                value = line.split("=", 1)[1].strip()
+                if value:
+                    harness_session_id = value
 
         agent_failed = "FACTORY_AGENT_FAILED=1" in logs
         new_status = "pr_open" if (exit_code == 0 and pr_number and not agent_failed) else "failed"
@@ -164,6 +170,7 @@ class Scheduler:
             status=new_status,
             container_id=None,
             pr_number=pr_number,
+            harness_session_id=harness_session_id,
             last_activity_at=time.time(),
         )
         logger.info(

@@ -10,16 +10,44 @@ No cloud control plane, no webhooks, no multi-tenant auth: this is a
 single-user, single-machine tool. GitHub is only ever polled, never
 pushes to us, so nothing needs to be publicly reachable.
 
+The agent harness is [OpenCode](https://opencode.ai), pointed at a
+local model server (e.g. LM Studio) rather than a hosted API -- see
+`FACTORY_LOCAL_*` below.
+
 ## Status
 
-**Not yet runnable end-to-end.** `app/`, the FastAPI service, and the
-static UI are built and import cleanly. The agent container's
-`entrypoint.sh` — the script that would actually run Claude Code
-unattended with push credentials inside the container — was not
-written: Claude Code's own safety classifier blocked it as "create
-unsafe agents" (fully autonomous, permission-bypassing, with repo
-write access, no human in the loop at execution time). See *Open
-design question* below before continuing.
+Scaffolded and smoke-tested module by module (sqlite store, scheduler
+state machine against fakes, API handlers, Docker image build). Not
+yet run end-to-end against a real repo/issue in this environment.
+
+The agent container's `entrypoint.sh` runs OpenCode headlessly with a
+GitHub push token and no human in the loop at execution time, so it
+deliberately does **not** use `--auto` ("auto-approve permissions that
+are not explicitly denied (dangerous!)" per opencode's own flag
+description -- the same shape of risk Claude Code's
+`--permission-mode bypassPermissions` has). Instead it ships a
+default-deny `permission.bash` config: a catch-all `"*": "ask"` with
+specific safe patterns (`git …`, `npm …`, `pytest…`, `gh pr …`, etc.)
+set to `"allow"`. Verified live against this opencode build: unmatched
+or dangerous bash commands auto-reject within a few seconds when run
+unattended (no TTY to answer a prompt), rather than hanging or
+silently executing. `edit` is left `"allow"` (the agent's actual job,
+already bounded to the checked-out repo tree); `webfetch` and
+`websearch` are denied by default to shrink the unattended attack
+surface -- loosen either in `agent_image/entrypoint.sh` if a repo
+needs them.
+
+That narrows *what* an unattended turn can do, but two things are
+still worth doing on top of it, not done yet:
+
+1. **A separate, narrowly-scoped GitHub token** for the container --
+   a fine-grained PAT limited to Contents + Pull Requests write on
+   just the repos in `FACTORY_REPOS`, no admin/delete/other-repo
+   scope -- so a worst-case runaway turn can't do much beyond what a
+   PR already bounds.
+2. **Branch protection on the watched repos** so nothing from
+   `factory/*` branches merges without a human clicking the button --
+   the autonomy is scoped to "propose a PR," never "land it."
 
 ## How it works
 
@@ -37,9 +65,13 @@ design question* below before continuing.
      and queues a new turn with those comments as the prompt
 - **Sessions never keep a container running.** Each turn is one
   `docker run` against a persistent named volume (`factory-ws-<id>`)
-  holding the git clone and Claude Code's own session state. Sleeping
-  costs nothing; waking is just another container run against the
-  same volume, resuming the same Claude session (`claude --resume`).
+  holding the git clone and OpenCode's own session state (`HOME=/data`
+  inside the container, so its sqlite session db lands on the volume
+  too). Sleeping costs nothing; waking is just another container run
+  against the same volume, resuming the same OpenCode session
+  (`opencode run ... -s <session-id>`). OpenCode assigns that session
+  id itself on the first turn -- the entrypoint prints it as
+  `FACTORY_OPENCODE_SESSION_ID=...` and the scheduler stores it.
 - **State** lives in `data/factory.db` (sqlite) — sessions and a log
   of everything that happened to each one.
 - **UI** (`static/`) is plain HTML/JS served by the same FastAPI app,
@@ -50,51 +82,30 @@ design question* below before continuing.
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # fill in GITHUB_TOKEN, GITHUB_BOT_USERNAME, FACTORY_REPOS, ANTHROPIC_API_KEY
+cp .env.example .env   # fill in GITHUB_TOKEN, GITHUB_BOT_USERNAME, FACTORY_REPOS
 ```
 
 Add the bot account as a collaborator on every repo in `FACTORY_REPOS`
 (or give it org access) — it needs to be assignable to issues and able
 to push branches / open PRs.
 
+Have a local OpenAI-compatible model server running (LM Studio, etc.)
+and reachable from Docker containers. Defaults assume LM Studio on
+`127.0.0.1:1234` serving `qwen/qwen3.8-27b`, matching this machine's
+`~/.config/opencode/opencode.jsonc`; override via `FACTORY_LOCAL_*` in
+`.env` for a different model/provider/port. Inside the container the
+host is reached as `host.docker.internal` (works out of the box on
+Docker Desktop; on Linux Docker Engine `docker_runner.py` already adds
+the `host-gateway` mapping that makes it work there too).
+
 Docker must be running locally; the first start builds the agent image
-from `agent_image/` (currently incomplete — see above).
+from `agent_image/`.
 
 ```bash
 uvicorn app.main:app --reload --port 8787
 ```
 
 Open `http://127.0.0.1:8787`.
-
-## Open design question: the agent container's entrypoint
-
-The blocked piece is the script each container runs: clone/resume the
-repo, run `claude -p "<prompt>" --permission-mode bypassPermissions`
-unattended, push, and `gh pr create`. That combination — full tool
-access, no permission prompts, holding a push-capable GitHub token,
-with nobody watching — is exactly what the safety check exists to
-catch, regardless of the Docker isolation around it.
-
-Options to actually resolve this (pick one, or suggest another, and
-I'll write the entrypoint against it):
-
-1. **Narrow the tool surface** instead of bypassing permissions
-   outright: `--permission-mode acceptEdits` plus explicit
-   `--allowedTools`/`--disallowedTools` scoping Bash to a safe subset
-   (package managers, test runners, git) rather than wide open shell
-   access.
-2. **Draft PRs only**, with a repo-side branch-protection rule (or just
-   convention) that nothing from `factory/*` branches merges without
-   you clicking the button — the autonomy is scoped to "propose," never
-   "land."
-3. **A separate, far more limited token** for the container (e.g. a
-   fine-grained PAT scoped to *only* the specific repos, with Contents
-   + Pull Requests write but no admin/delete/other-repo scope), so even
-   a worst-case runaway agent can't do much beyond what a PR already
-   bounds.
-
-None of these are mutually exclusive — in practice you'd likely want
-(2) and (3) regardless of which permission mode you pick for (1).
 
 ## Repo layout
 
@@ -107,8 +118,8 @@ app/
   scheduler.py      the state machine
   main.py           FastAPI routes + static UI mount
 agent_image/
-  Dockerfile        node+python+git+gh+claude-code base image
-  entrypoint.sh      <- not yet written, see above
+  Dockerfile        node+python+git+gh+opencode base image
+  entrypoint.sh      clone/resume, run opencode, push, gh pr create
 static/
   index.html, app.js, style.css   local UI, no build step
 ```
