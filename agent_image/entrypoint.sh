@@ -89,6 +89,15 @@ cat > "$HOME/.config/opencode/opencode.jsonc" <<EOF
       "git diff*": "allow",
       "git log*": "allow",
       "git show*": "allow",
+      "git ls-files*": "allow",
+      "git ls-tree*": "allow",
+      "git rev-parse*": "allow",
+      "git rev-list*": "allow",
+      "git grep*": "allow",
+      "git blame*": "allow",
+      "git shortlog*": "allow",
+      "git describe*": "allow",
+      "git cat-file*": "allow",
       "git add*": "allow",
       "git commit*": "allow",
       "git checkout*": "allow",
@@ -185,7 +194,9 @@ if [ -n "$REPO" ]; then
 - Make the change the task needs, and keep it focused on what was asked.
 - Run the project's own tests or checks when you can, and fix anything you broke.
 - Nobody will answer questions while you work. Where the task is ambiguous, pick the most reasonable reading and say what you chose.
-- Your final message becomes the pull request description: what changed, why, and anything you could not do.
+- To search and read files, use the glob, grep and read tools. Use bash only for things they can't do, and keep each command simple: no pipelines built with commas, and no long find-and-sort chains.
+- If a command is rejected, don't stop. Retry with a simpler command, or use another tool, and carry on with the task.
+- Always finish with a final message, even if part of the task couldn't be done. It must answer the task with what you found, and say what you could not do. It becomes the pull request description.
 - If the task needs no code change, say so in your final message and stop.
 
 Task:
