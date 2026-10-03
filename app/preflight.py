@@ -39,6 +39,9 @@ def _docker_problem() -> list[str]:
 
 def _port_problem(host: str, port: int) -> list[str]:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        # Match uvicorn, which sets this too. Without it, connections left
+        # in TIME_WAIT after a server stops make the port look busy.
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind((host, port))
         except OSError:
