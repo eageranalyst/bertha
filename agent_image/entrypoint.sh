@@ -14,6 +14,19 @@
 # anything unmatched within a few seconds when run unattended, rather
 # than hanging or silently allowing. Extend the allowlist if a repo
 # needs another build tool; don't switch to --auto to work around it.
+#
+# Two things worth knowing about how this matches:
+# - Rules match the WHOLE command string, not each piped/chained part.
+#   "pwd && ls -la" only matches if some rule matches that literal
+#   string from the start -- "ls*" alone won't catch it. Rules are
+#   evaluated in order with the LAST match winning, so the "deny"
+#   patterns near the end are a backstop against an allowed prefix
+#   (e.g. "cd *") hiding something dangerous after a "&&".
+# - "echo" and "env"/"printenv" are deliberately NOT allowlisted:
+#   GITHUB_TOKEN is a real env var in this container (needed for git
+#   push / gh pr create), and both can read env vars straight into
+#   the transcript ("echo $GITHUB_TOKEN"). They fall through to the
+#   "ask" catch-all and auto-reject instead.
 set -euo pipefail
 
 REPO="${REPO:-}"
@@ -81,7 +94,28 @@ cat > "$HOME/.config/opencode/opencode.jsonc" <<EOF
       "mkdir *": "allow",
       "wc *": "allow",
       "head *": "allow",
-      "tail *": "allow"
+      "tail *": "allow",
+      "pwd*": "allow",
+      "which *": "allow",
+      "date*": "allow",
+      "true*": "allow",
+      "type *": "allow",
+      "file *": "allow",
+      "du *": "allow",
+      "df*": "allow",
+      "diff *": "allow",
+      "cd *": "allow",
+      "*rm -rf*": "deny",
+      "*rm -fr*": "deny",
+      "*sudo *": "deny",
+      "* dd *": "deny",
+      "*mkfs*": "deny",
+      "*chmod -R 777*": "deny",
+      "*:(){ :": "deny",
+      "*|sh*": "deny",
+      "*| sh*": "deny",
+      "*|bash*": "deny",
+      "*| bash*": "deny"
     }
   }
 }
