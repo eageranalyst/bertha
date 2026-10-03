@@ -3,6 +3,5 @@ __pycache__/
 .env
 data/*.db
 data/*.db-journal
-data/wiki-work/
 .venv/
 venv/

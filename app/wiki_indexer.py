@@ -211,7 +211,10 @@ LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
 class WikiIndexer:
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.work_root = Path(settings.db_path).resolve().parent / "wiki-work"
+        # Clones go under the system temp dir, not data/. uvicorn --reload
+        # watches the working directory for .py changes, and a clone full of
+        # .py files there would restart the server mid-build.
+        self.work_root = Path(tempfile.gettempdir()) / "factory-wiki"
         self._lock = threading.Lock()
         self._running: set[str] = set()
 
