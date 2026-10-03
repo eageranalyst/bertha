@@ -27,9 +27,14 @@ export interface Session {
   last_seen_comment_id: number;
   last_activity_at: number;
   pending_message: string | null;
+  /** What the session is waiting on from you, or null. */
+  attention: AttentionReason | null;
   created_at: number;
   updated_at: number;
 }
+
+/** replied: the agent answered and needs your reply. review: a PR is open. failed: the last turn errored. */
+export type AttentionReason = "replied" | "review" | "failed";
 
 export interface LogEntry {
   id: number;

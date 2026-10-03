@@ -83,6 +83,17 @@ class Scheduler:
         self._discover_new_issues()
         self._check_sleeping()
 
+    def _settle(self, session_id: int, status: str, attention: str | None, **fields: Any) -> None:
+        """Ends a turn. `attention` says what the session is waiting on
+        ("replied", "review" or "failed"), or None. Nothing is flagged when
+        the user already sent a message while the turn ran, since that
+        message is the next thing to act on.
+        """
+        current = store.get_session(session_id)
+        if current and current["pending_message"]:
+            attention = None
+        store.update_session(session_id, status=status, attention=attention, **fields)
+
     # -- stop (called from an API handler, not the tick loop) -----------
 
     def stop_turn(self, session: dict[str, Any]) -> bool:
@@ -206,7 +217,7 @@ class Scheduler:
             data = resp.json()
             text = data["choices"][0]["message"]["content"]
             store.append_log(session_id, "ask_response", text)
-            store.update_session(session_id, status="idle", last_activity_at=time.time())
+            self._settle(session_id, "idle", "replied", last_activity_at=time.time())
         except Exception as exc:
             # Either a real failure, or stop_turn() closed the client out
             # from under us -- can't cleanly tell which, so the log line
@@ -261,7 +272,7 @@ class Scheduler:
             container_id = self.runner.start_turn(session["id"], env)
         except Exception:
             logger.exception("failed starting container for session %s", session["id"])
-            store.update_session(session["id"], status="failed")
+            store.update_session(session["id"], status="failed", attention="failed")
             store.append_log(session["id"], "system", "Failed to start container")
             return
         store.update_session(
@@ -316,9 +327,11 @@ class Scheduler:
         else:
             # no repo attached: nothing to push, so "ran cleanly" is success
             new_status = "idle"
-        store.update_session(
+        attention = {"failed": "failed", "pr_open": "review", "idle": "replied"}.get(new_status)
+        self._settle(
             session["id"],
-            status=new_status,
+            new_status,
+            attention,
             container_id=None,
             pr_number=pr_number,
             harness_session_id=harness_session_id,

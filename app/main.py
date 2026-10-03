@@ -192,7 +192,9 @@ def api_close_session(session_id: int):
     if session["status"] == "running":
         scheduler.stop_turn(session)
     _teardown_volume(session_id, scheduler)
-    store.update_session(session_id, status="closed", container_id=None, pending_message=None)
+    store.update_session(
+        session_id, status="closed", container_id=None, pending_message=None, attention=None
+    )
     store.append_log(session_id, "system", "Closed from UI")
     return store.get_session(session_id)
 
@@ -204,7 +206,9 @@ def api_archive_session(session_id: int):
     if session["status"] == "running":
         scheduler.stop_turn(session)
     _teardown_volume(session_id, scheduler)
-    store.update_session(session_id, status="archived", container_id=None, pending_message=None)
+    store.update_session(
+        session_id, status="archived", container_id=None, pending_message=None, attention=None
+    )
     store.append_log(session_id, "system", "Archived from UI")
     return store.get_session(session_id)
 
@@ -212,7 +216,7 @@ def api_archive_session(session_id: int):
 @app.post("/api/sessions/{session_id}/reopen")
 def api_reopen_session(session_id: int):
     _get_or_404(session_id)
-    store.update_session(session_id, status="queued")
+    store.update_session(session_id, status="queued", attention=None)
     store.append_log(session_id, "system", "Reopened from UI")
     return store.get_session(session_id)
 

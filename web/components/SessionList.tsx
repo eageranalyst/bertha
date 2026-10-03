@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { Session } from "@/lib/types";
+import type { AttentionReason, Session } from "@/lib/types";
+
+const ATTENTION_LABEL: Record<AttentionReason, string> = {
+  replied: "Waiting for your reply",
+  review: "PR is open and waiting on you",
+  failed: "The last turn failed",
+};
 
 export function SessionList({
   sessions,
@@ -40,6 +46,14 @@ export function SessionList({
             onClick={() => router.push(`/sessions/${s.id}`)}
           >
             <div className="session-row-top">
+              {s.attention && (
+                <span
+                  className={`attention-dot attention-${s.attention}`}
+                  title={ATTENTION_LABEL[s.attention]}
+                  role="img"
+                  aria-label={ATTENTION_LABEL[s.attention]}
+                />
+              )}
               <span className={`pill pill-type-${s.session_type}`}>{s.session_type}</span>
               <span className="session-row-title">{s.title || "(untitled)"}</span>
               <span className={`status status-${s.status}`}>{s.status}</span>

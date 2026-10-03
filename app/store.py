@@ -119,6 +119,16 @@ def init_db(db_path: str) -> None:
     with _connect() as conn:
         _migrate_pre_redesign_sessions_table(conn)
         conn.executescript(SCHEMA)
+        _add_missing_session_columns(conn)
+
+
+def _add_missing_session_columns(conn: sqlite3.Connection) -> None:
+    """Columns added after a database was first created. CREATE TABLE IF
+    NOT EXISTS won't add them to an existing table, so do it here.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+    if "attention" not in cols:
+        conn.execute("ALTER TABLE sessions ADD COLUMN attention TEXT")
 
 
 def _migrate_pre_redesign_sessions_table(conn: sqlite3.Connection) -> None:
@@ -257,6 +267,7 @@ _ALLOWED_FIELDS = {
     "last_activity_at",
     "pending_message",
     "harness_session_id",
+    "attention",
 }
 
 
@@ -274,7 +285,8 @@ def update_session(session_id: int, **fields: Any) -> None:
 
 
 def set_pending_message(session_id: int, text: str) -> None:
-    update_session(session_id, pending_message=text)
+    # Sending a message answers whatever the session was waiting on.
+    update_session(session_id, pending_message=text, attention=None)
 
 
 def clear_pending_message(session_id: int) -> None:
