@@ -25,15 +25,16 @@ export default function SessionsLayout({ children }: { children: ReactNode }) {
     return () => clearInterval(interval);
   }, [refresh]);
 
-  const match = pathname.match(/^\/sessions\/(\d+)/);
-  const selectedId = match ? Number(match[1]) : null;
+  // /sessions/<ref>; "new" is the draft page, not a session.
+  const match = pathname.match(/^\/sessions\/([^/]+)/);
+  const selectedRef = match && match[1] !== "new" ? match[1] : null;
   const draftActive = pathname === "/sessions/new";
 
   return (
     <main>
       <SessionList
         sessions={sessions.filter((s) => s.status !== "archived")}
-        selectedId={selectedId}
+        selectedRef={selectedRef}
         draftActive={draftActive}
       />
       <section id="detail-pane">{children}</section>

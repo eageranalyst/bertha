@@ -12,11 +12,11 @@ const ATTENTION_LABEL: Record<AttentionReason, string> = {
 
 export function SessionList({
   sessions,
-  selectedId,
+  selectedRef,
   draftActive,
 }: {
   sessions: Session[];
-  selectedId: number | null;
+  selectedRef: string | null;
   draftActive: boolean;
 }) {
   const router = useRouter();
@@ -42,8 +42,8 @@ export function SessionList({
         {sessions.map((s) => (
           <div
             key={s.id}
-            className={"session-row" + (s.id === selectedId ? " selected" : "")}
-            onClick={() => router.push(`/sessions/${s.id}`)}
+            className={"session-row" + (s.ref === selectedRef ? " selected" : "")}
+            onClick={() => router.push(`/sessions/${s.ref}`)}
           >
             <div className="session-row-top">
               {s.attention && (

@@ -17,7 +17,7 @@ export default function NewSessionPage() {
   async function submit(sessionType: SessionType, repo: string | null, prompt: string | null) {
     try {
       const session = await api.createSession({ session_type: sessionType, repo, prompt });
-      router.push(`/sessions/${session.id}`);
+      router.push(`/sessions/${session.ref}`);
     } catch (err) {
       alert(`Could not start session: ${(err as Error).message}`);
     }

@@ -147,6 +147,14 @@ def api_list_sessions():
     return store.list_sessions()
 
 
+@app.get("/api/sessions/by-ref/{ref}")
+def api_get_session_by_ref(ref: str):
+    session = store.get_session_by_ref(ref)
+    if not session:
+        raise HTTPException(404, "session not found")
+    return session
+
+
 @app.get("/api/sessions/{session_id}")
 def api_get_session(session_id: int):
     return _get_or_404(session_id)

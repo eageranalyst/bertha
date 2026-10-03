@@ -8,28 +8,23 @@ import { ApiError, api } from "@/lib/api";
 import type { LogEntry, Session } from "@/lib/types";
 
 export default function SessionPage() {
-  const { id } = useParams<{ id: string }>();
+  const { ref } = useParams<{ ref: string }>();
   const router = useRouter();
-  const sessionId = Number(id);
   const [session, setSession] = useState<Session | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [missing, setMissing] = useState(false);
 
   const refresh = useCallback(async () => {
-    if (!Number.isInteger(sessionId)) {
-      setMissing(true);
-      return;
-    }
     try {
-      const [s, l] = await Promise.all([api.getSession(sessionId), api.getLogs(sessionId)]);
-      setSession(s);
-      setLogs(l);
+      const current = await api.getSessionByRef(ref);
+      setSession(current);
+      setLogs(await api.getLogs(current.id));
       setMissing(false);
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) setMissing(true);
       // Any other failure: keep what's on screen and retry on the next tick.
     }
-  }, [sessionId]);
+  }, [ref]);
 
   useEffect(() => {
     setSession(null);
@@ -57,6 +52,8 @@ export default function SessionPage() {
     );
   }
   if (!session) return <div className="empty-state">Loading…</div>;
+
+  const sessionId = session.id;
 
   return (
     <SessionDetail

@@ -57,6 +57,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   listSessions: () => request<Session[]>("/api/sessions"),
   getSession: (id: number) => request<Session>(`/api/sessions/${id}`),
+  getSessionByRef: (ref: string) =>
+    request<Session>(`/api/sessions/by-ref/${encodeURIComponent(ref)}`),
   getLogs: (id: number) => request<LogEntry[]>(`/api/sessions/${id}/logs`),
   listRepos: () => request<Repo[]>("/api/repos"),
   getRepoMetadata: (repoId: number) => request<RepoMetadata>(`/api/repos/${repoId}/metadata`),

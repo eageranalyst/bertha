@@ -243,6 +243,12 @@ def create_session(
         return cur.lastrowid
 
 
+def get_session_by_ref(ref: str) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM sessions WHERE ref = ?", (ref,)).fetchone()
+        return _row_to_dict(row) if row else None
+
+
 def find_session_by_issue(repo: str, issue_number: int) -> dict[str, Any] | None:
     with _connect() as conn:
         row = conn.execute(
