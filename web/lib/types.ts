@@ -109,6 +109,26 @@ export interface GitHubRepoInfo {
   open_issues: number;
 }
 
+export interface Skill {
+  id: number;
+  name: string;
+  description: string;
+  version: number;
+  created_at: number;
+  updated_at: number;
+  metadata: Record<string, string>;
+}
+
+/** A skill with its markdown body, from the single-skill endpoints. */
+export interface SkillWithContent extends Skill {
+  content: string;
+}
+
+/** A library skill as one repo sees it. */
+export interface RepoSkill extends Skill {
+  enabled: boolean;
+}
+
 export interface RepoMetadata {
   repo: Repo;
   github: GitHubRepoInfo | null;

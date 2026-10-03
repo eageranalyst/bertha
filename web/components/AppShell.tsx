@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 const TABS = [
   { href: "/sessions", label: "Sessions" },
   { href: "/repos", label: "Repos" },
+  { href: "/skills", label: "Skills" },
 ];
 
 /** The header with the section tabs. The active tab follows the URL. */

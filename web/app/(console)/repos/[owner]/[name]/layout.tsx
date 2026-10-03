@@ -11,6 +11,7 @@ import type { Repo } from "@/lib/types";
 const SUBTABS = [
   { segment: "metadata", label: "Metadata" },
   { segment: "wiki", label: "Wiki" },
+  { segment: "skills", label: "Skills" },
 ];
 
 /** Looks the repo up by its name, then shares it with the subtab pages. */

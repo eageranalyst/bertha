@@ -37,6 +37,9 @@ def parse_skill(content: str) -> tuple[str, str]:
         raise ValueError(
             "name must be lowercase letters, digits and hyphens, up to 64 characters"
         )
+    if name == "new":
+        # /skills/new is the install page, so a skill can't use that URL.
+        raise ValueError("'new' is reserved; choose another name")
     if not description:
         raise ValueError("description is required: say what the skill does and when to use it")
     return name, description

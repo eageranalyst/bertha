@@ -1,9 +1,12 @@
 import type {
   LogEntry,
-  Repo,
   RepoMetadata,
+  RepoSkill,
+  Repo,
   Session,
   SessionType,
+  Skill,
+  SkillWithContent,
   WikiPage,
   WikiResponse,
 } from "./types";
@@ -60,6 +63,27 @@ export const api = {
   getWiki: (repoId: number) => request<WikiResponse>(`/api/repos/${repoId}/wiki`),
   getWikiPage: (repoId: number, slug: string) =>
     request<WikiPage>(`/api/repos/${repoId}/wiki/pages/${encodeURIComponent(slug)}`),
+  listSkills: () => request<Skill[]>("/api/skills"),
+  getSkillByName: (name: string) =>
+    request<SkillWithContent>(`/api/skills/by-name/${encodeURIComponent(name)}`),
+  saveSkill: (content: string) =>
+    request<SkillWithContent & { created: boolean }>("/api/skills", {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+  setSkillMetadata: (skillId: number, metadata: Record<string, string>) =>
+    request<SkillWithContent>(`/api/skills/${skillId}/metadata`, {
+      method: "PUT",
+      body: JSON.stringify({ metadata }),
+    }),
+  deleteSkill: (skillId: number) =>
+    request<{ ok: boolean }>(`/api/skills/${skillId}`, { method: "DELETE" }),
+  listRepoSkills: (repoId: number) => request<RepoSkill[]>(`/api/repos/${repoId}/skills`),
+  setRepoSkill: (repoId: number, skillId: number, enabled: boolean) =>
+    request<RepoSkill[]>(`/api/repos/${repoId}/skills/${skillId}`, {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    }),
   indexWiki: (repoId: number, force: boolean) =>
     request<WikiResponse>(`/api/repos/${repoId}/wiki/index`, {
       method: "POST",
