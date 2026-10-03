@@ -66,6 +66,11 @@ models = json.load(sys.stdin) or [{"key": os.environ["LOCAL_MODEL_KEY"], "model_
 print(json.dumps({m["key"]: {"id": m["model_id"], "name": m["model_id"]} for m in models}))
 ')
 
+# What Bertha knows about this repo (its wiki), loaded with the working
+# practices as standing instructions, the way CLAUDE.md is in Claude Code.
+mkdir -p "$HOME/factory"
+printf '%s\n' "${REPO_CONTEXT:-}" > "$HOME/factory/repo-context.md"
+
 cat > "$HOME/.config/opencode/opencode.jsonc" <<EOF
 {
   "\$schema": "https://opencode.ai/config.json",
@@ -80,6 +85,8 @@ cat > "$HOME/.config/opencode/opencode.jsonc" <<EOF
   "skills": { "paths": ["${HOME}/skills"] },
   "agent": { "build": { "steps": ${AGENT_STEPS:-25} } },
   "tool_output": { "max_lines": 200, "max_bytes": 8192 },
+  "instructions": ["/opt/factory/WORKING.md", "${HOME}/factory/repo-context.md"],
+  "compaction": { "auto": true },
   "permission": {
     "edit": "allow",
     "webfetch": "deny",
@@ -88,6 +95,7 @@ cat > "$HOME/.config/opencode/opencode.jsonc" <<EOF
     "bash": {
       "*": "ask",
       "git status*": "allow",
+      "git -C /data/repo *": "allow",
       "git diff*": "allow",
       "git log*": "allow",
       "git show*": "allow",
@@ -192,14 +200,9 @@ fi
 # done. The final message is reused as the pull request description.
 MESSAGE="$PROMPT"
 if [ -n "$REPO" ]; then
-    MESSAGE="You are working in the git checkout at /data/repo, on branch $BRANCH_NAME. Carry the task through to finished work in this one run:
-- Make the change the task needs, and keep it focused on what was asked.
-- Run the project's own tests or checks when you can, and fix anything you broke.
-- Nobody will answer questions while you work. Where the task is ambiguous, pick the most reasonable reading and say what you chose.
-- To search and read files, use the glob, grep and read tools. Use bash only for things they can't do, and keep each command simple: no pipelines built with commas, and no long find-and-sort chains.
-- If a command is rejected, don't stop. Retry with a simpler command, or use another tool, and carry on with the task.
-- Always finish with a final message, even if part of the task couldn't be done. It must answer the task with what you found, and say what you could not do. It becomes the pull request description.
-- If the task needs no code change, say so in your final message and stop.
+    # The general working practices come from WORKING.md (see "instructions"
+    # in the config); this only adds what's specific to this turn.
+    MESSAGE="You are working in the git checkout at /data/repo, on branch $BRANCH_NAME. Carry the task through to finished, verified work in this one run, following your working practices. Your changes are committed and proposed as a pull request when you finish. If the task needs no code change, answer it and say so.
 
 Task:
 $PROMPT"
@@ -286,9 +289,32 @@ if [ -n "$SESSION" ]; then
 fi
 
 if [ -n "$REPO" ]; then
+    # The agent's final report: the commit body and the pull request description.
+    python3 - > /data/pr_summary.md <<'PY' || true
+import json
+last_message = ""
+try:
+    with open("/data/last_result.ndjson") as fh:
+        for line in fh:
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            part = event.get("part") or {}
+            if event.get("type") == "text" and (part.get("text") or "").strip():
+                last_message = part["text"]
+except OSError:
+    pass
+print(last_message.strip()[-4000:])
+PY
+
     if [ -n "$(git status --porcelain)" ]; then
         git add -A
-        git commit -m "${COMMIT_MESSAGE:-agent: apply changes for $BRANCH_NAME}" >/dev/null
+        {
+            echo "${PR_TITLE:-agent: changes for $BRANCH_NAME}"
+            if [ -s /data/pr_summary.md ]; then echo; cat /data/pr_summary.md; fi
+        } > /data/commit_message.txt
+        git commit -F /data/commit_message.txt >/dev/null
         echo "FACTORY_PUSHED=1"
     else
         echo "FACTORY_PUSHED=0"
@@ -304,24 +330,6 @@ if [ -n "$REPO" ]; then
     fi
 
     if [ "$AHEAD" -gt 0 ] && { [ -z "${PR_NUMBER:-}" ] || [ "${PR_NUMBER}" = "0" ]; }; then
-        # The agent's final messages, which describe what it did.
-        python3 - > /data/pr_summary.md <<'PY' || true
-import json
-texts = []
-try:
-    with open("/data/last_result.ndjson") as fh:
-        for line in fh:
-            try:
-                event = json.loads(line)
-            except ValueError:
-                continue
-            part = event.get("part") or {}
-            if event.get("type") == "text" and part.get("text"):
-                texts.append(part["text"])
-except OSError:
-    pass
-print("\n".join(texts).strip()[-4000:])
-PY
         {
             if [ -s /data/pr_summary.md ]; then cat /data/pr_summary.md; echo; fi
             echo "${PR_BODY:-Automated changes from factory agent.}"

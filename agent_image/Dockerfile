@@ -15,6 +15,7 @@ RUN npm install -g opencode-ai
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 COPY run_summary.py /opt/factory/run_summary.py
+COPY WORKING.md /opt/factory/WORKING.md
 
 WORKDIR /data
 ENTRYPOINT ["/entrypoint.sh"]

@@ -54,6 +54,35 @@ from .github_client import GitHubClient
 logger = logging.getLogger("factory.scheduler")
 
 TERMINAL_STATUSES = {"closed", "archived"}
+
+# Wiki pages a coding agent gets as standing context, most useful first, and
+# the most text that adds to every turn's prompt.
+CONTEXT_PAGES = ("conventions", "overview", "architecture", "testing", "getting-started")
+CONTEXT_MAX_CHARS = 12_000
+
+
+def repo_context(repo: str) -> str:
+    """The repo's wiki pages as one markdown document, for the agent. Each
+    page's Sources list is dropped; it's links for people, not context.
+    Empty when the repo has no wiki yet.
+    """
+    parts = ["# Repository context", "",
+             f"Bertha's wiki for {repo}. It was written from the code, so check it "
+             "against the code when it matters.", ""]
+    used = sum(len(p) for p in parts)
+    for slug in CONTEXT_PAGES:
+        page = store.get_wiki_page(repo, slug)
+        if not page:
+            continue
+        body = page["body"].split("\n## Sources", 1)[0].strip()
+        section = f"## {page['title']}\n\n{body}\n"
+        if used + len(section) > CONTEXT_MAX_CHARS:
+            section = section[: max(0, CONTEXT_MAX_CHARS - used)].rstrip() + "\n… (truncated)\n"
+        parts.append(section)
+        used += len(section)
+        if used >= CONTEXT_MAX_CHARS:
+            break
+    return "\n".join(parts) if len(parts) > 4 else ""
 BUSY_OR_QUEUED = {"running", "queued"}
 
 
@@ -293,6 +322,8 @@ class Scheduler:
             "PROMPT": prompt,
             "OPENCODE_SESSION_ID": session["harness_session_id"] or "",
             "OPENCODE_MODEL": opencode_model,
+            # The repo's wiki, loaded as standing instructions (like CLAUDE.md).
+            "REPO_CONTEXT": repo_context(session["repo"]) if session["repo"] else "",
             # How far this turn may run: steps, continuations, timeout, token budget.
             **agent_settings.env_for_turn(),
             # Every enabled model, so OpenCode knows the full set it can switch to.
