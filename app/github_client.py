@@ -29,6 +29,20 @@ class GitHubClient:
             if i.pull_request is None
         ]
 
+    def repo_info(self, repo_full_name: str) -> dict[str, Any]:
+        """The repo's own metadata as GitHub reports it, for the Repos tab."""
+        repo = self._gh.get_repo(repo_full_name)
+        return {
+            "description": repo.description,
+            "default_branch": repo.default_branch,
+            "language": repo.language,
+            "private": repo.private,
+            "archived": repo.archived,
+            "html_url": repo.html_url,
+            "pushed_at": repo.pushed_at.timestamp() if repo.pushed_at else None,
+            "open_issues": repo.open_issues_count,
+        }
+
     def get_issue(self, repo_full_name: str, issue_number: int) -> dict[str, Any]:
         repo = self._gh.get_repo(repo_full_name)
         issue = repo.get_issue(issue_number)

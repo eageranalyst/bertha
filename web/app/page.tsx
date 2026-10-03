@@ -6,10 +6,18 @@ import type { LogEntry, Repo, Session, SessionType } from "@/lib/types";
 import { ComposeDraft } from "@/components/ComposeDraft";
 import { SessionList } from "@/components/SessionList";
 import { SessionDetail } from "@/components/SessionDetail";
+import { ReposView } from "@/components/ReposView";
 
 type SelectedId = number | "draft" | null;
+type Tab = "sessions" | "repos";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "sessions", label: "Sessions" },
+  { id: "repos", label: "Repos" },
+];
 
 export default function Page() {
+  const [tab, setTab] = useState<Tab>("sessions");
   const [sessions, setSessions] = useState<Session[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [selectedId, setSelectedId] = useState<SelectedId>(null);
@@ -40,7 +48,8 @@ export default function Page() {
     refreshSessions();
     refreshRepos();
     const sessionsInterval = setInterval(refreshSessions, 3000);
-    const reposInterval = setInterval(refreshRepos, 15000);
+    // Repos carry their wiki status, which a running build changes.
+    const reposInterval = setInterval(refreshRepos, 3000);
     return () => {
       clearInterval(sessionsInterval);
       clearInterval(reposInterval);
@@ -112,47 +121,65 @@ export default function Page() {
             <p className="subtitle">Local sessions, local model</p>
           </div>
         </div>
+        <nav className="top-tabs" role="tablist">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.id}
+              className={"top-tab" + (tab === t.id ? " active" : "")}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
       </header>
 
-      <main>
-        <SessionList
-          sessions={visibleSessions}
-          selectedId={selectedId}
-          draftActive={draftActive}
-          onNewSession={startDraft}
-          onSelectDraft={() => setSelectedId("draft")}
-          onSelectSession={selectSession}
-        />
+      {tab === "repos" ? (
+        <ReposView repos={repos} />
+      ) : (
+        <main>
+          <SessionList
+            sessions={visibleSessions}
+            selectedId={selectedId}
+            draftActive={draftActive}
+            onNewSession={startDraft}
+            onSelectDraft={() => setSelectedId("draft")}
+            onSelectSession={selectSession}
+          />
 
-        <section id="detail-pane">
-          {selectedId === "draft" && <ComposeDraft repos={repos} onSubmit={submitDraft} />}
+          <section id="detail-pane">
+            {selectedId === "draft" && <ComposeDraft repos={repos} onSubmit={submitDraft} />}
 
-          {typeof selectedId === "number" && selectedSession && (
-            <SessionDetail
-              session={selectedSession}
-              logs={logs}
-              onMessage={sendMessage}
-              onStop={async () => {
-                if (typeof selectedId !== "number") return;
-                try {
-                  await api.stopSession(selectedId);
-                } catch (err) {
-                  alert(`Could not stop: ${(err as Error).message}`);
-                }
-                await refreshSessions();
-                await refreshDetail(selectedId);
-              }}
-              onClose={() => withRefresh(() => api.closeSession(selectedId as number))}
-              onArchive={() => withRefresh(() => api.archiveSession(selectedId as number))}
-              onReopen={() => withRefresh(() => api.reopenSession(selectedId as number))}
-            />
-          )}
+            {typeof selectedId === "number" && selectedSession && (
+              <SessionDetail
+                session={selectedSession}
+                logs={logs}
+                onMessage={sendMessage}
+                onStop={async () => {
+                  if (typeof selectedId !== "number") return;
+                  try {
+                    await api.stopSession(selectedId);
+                  } catch (err) {
+                    alert(`Could not stop: ${(err as Error).message}`);
+                  }
+                  await refreshSessions();
+                  await refreshDetail(selectedId);
+                }}
+                onClose={() => withRefresh(() => api.closeSession(selectedId as number))}
+                onArchive={() => withRefresh(() => api.archiveSession(selectedId as number))}
+                onReopen={() => withRefresh(() => api.reopenSession(selectedId as number))}
+              />
+            )}
 
-          {selectedId === null && (
-            <div className="empty-state">Select a session, or start a new one.</div>
-          )}
-        </section>
-      </main>
+            {selectedId === null && (
+              <div className="empty-state">Select a session, or start a new one.</div>
+            )}
+          </section>
+        </main>
+      )}
     </div>
   );
 }

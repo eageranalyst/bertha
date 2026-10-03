@@ -1,4 +1,12 @@
-import type { LogEntry, Repo, Session, SessionType } from "./types";
+import type {
+  LogEntry,
+  Repo,
+  RepoMetadata,
+  Session,
+  SessionType,
+  WikiPage,
+  WikiResponse,
+} from "./types";
 
 const API_ORIGIN = process.env.NEXT_PUBLIC_API_ORIGIN ?? "http://127.0.0.1:8787";
 
@@ -18,6 +26,15 @@ export const api = {
   getSession: (id: number) => request<Session>(`/api/sessions/${id}`),
   getLogs: (id: number) => request<LogEntry[]>(`/api/sessions/${id}/logs`),
   listRepos: () => request<Repo[]>("/api/repos"),
+  getRepoMetadata: (repoId: number) => request<RepoMetadata>(`/api/repos/${repoId}/metadata`),
+  getWiki: (repoId: number) => request<WikiResponse>(`/api/repos/${repoId}/wiki`),
+  getWikiPage: (repoId: number, slug: string) =>
+    request<WikiPage>(`/api/repos/${repoId}/wiki/pages/${encodeURIComponent(slug)}`),
+  indexWiki: (repoId: number, force: boolean) =>
+    request<WikiResponse>(`/api/repos/${repoId}/wiki/index`, {
+      method: "POST",
+      body: JSON.stringify({ force }),
+    }),
 
   createSession: (body: { session_type: SessionType; repo: string | null; prompt: string | null }) =>
     request<Session>("/api/sessions", { method: "POST", body: JSON.stringify(body) }),

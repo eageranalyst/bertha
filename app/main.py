@@ -24,6 +24,7 @@ from .config import get_settings
 from .docker_runner import DockerRunner
 from .github_client import GitHubClient
 from .scheduler import Scheduler
+from .wiki_indexer import WikiIndexer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("factory.main")
@@ -62,6 +63,7 @@ class TickThread(threading.Thread):
 async def lifespan(app: FastAPI):
     settings = get_settings()
     store.init_db(settings.db_path)
+    store.fail_interrupted_wiki_indexes()
     for repo in settings.repos:
         store.create_repo(repo)
     runner = DockerRunner(settings.agent_image_tag)
@@ -73,6 +75,8 @@ async def lifespan(app: FastAPI):
     fast_thread.start()
     slow_thread.start()
     _state["scheduler"] = scheduler
+    _state["gh"] = gh
+    _state["wiki"] = WikiIndexer(settings)
     _state["threads"] = [fast_thread, slow_thread]
     logger.info(
         "Agent Factory started, watching %s every %ss (session progress every %ss)",
@@ -107,6 +111,17 @@ class NewSessionIn(BaseModel):
 
 class RepoIn(BaseModel):
     full_name: str
+
+
+class WikiIndexIn(BaseModel):
+    force: bool = False
+
+
+def _repo_or_404(repo_id: int) -> dict:
+    repo = store.get_repo(repo_id)
+    if not repo:
+        raise HTTPException(404, "repo not found")
+    return repo
 
 
 def _get_or_404(session_id: int) -> dict:
@@ -232,5 +247,55 @@ def api_create_repo(body: RepoIn):
 def api_delete_repo(repo_id: int):
     store.delete_repo(repo_id)
     return store.list_repos()
+
+
+@app.get("/api/repos/{repo_id}/metadata")
+def api_repo_metadata(repo_id: int):
+    repo = _repo_or_404(repo_id)
+    gh: GitHubClient = _state["gh"]  # type: ignore[assignment]
+    github, github_error = None, None
+    try:
+        github = gh.repo_info(repo["full_name"])
+    except Exception as exc:
+        github_error = str(exc) or type(exc).__name__
+    sessions = [s for s in store.list_sessions() if s["repo"] == repo["full_name"]]
+    return {
+        "repo": repo,
+        "github": github,
+        "github_error": github_error,
+        "sessions": {
+            "total": len(sessions),
+            "active": sum(1 for s in sessions if s["status"] not in ("closed", "archived")),
+            "with_pr": sum(1 for s in sessions if s["pr_number"] is not None),
+        },
+        "wiki": store.get_wiki_index(repo["full_name"]),
+    }
+
+
+@app.get("/api/repos/{repo_id}/wiki")
+def api_get_wiki(repo_id: int):
+    repo = _repo_or_404(repo_id)
+    return {
+        "index": store.get_wiki_index(repo["full_name"]),
+        "pages": store.list_wiki_pages(repo["full_name"]),
+    }
+
+
+@app.get("/api/repos/{repo_id}/wiki/pages/{slug}")
+def api_get_wiki_page(repo_id: int, slug: str):
+    repo = _repo_or_404(repo_id)
+    page = store.get_wiki_page(repo["full_name"], slug)
+    if not page:
+        raise HTTPException(404, "wiki page not found")
+    return page
+
+
+@app.post("/api/repos/{repo_id}/wiki/index")
+def api_index_wiki(repo_id: int, body: WikiIndexIn | None = None):
+    repo = _repo_or_404(repo_id)
+    wiki: WikiIndexer = _state["wiki"]  # type: ignore[assignment]
+    if not wiki.start(repo["full_name"], force=bool(body and body.force)):
+        raise HTTPException(409, "this repo's wiki is already being indexed")
+    return api_get_wiki(repo_id)
 
 

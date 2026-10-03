@@ -125,6 +125,39 @@ still worth doing on top of it, not done yet:
   logs (`agent_output`) render as plain preformatted text instead,
   since that's an NDJSON dump, not prose.
 
+## Repos and wiki
+
+The **Repos** tab lists every registered repo. Each one has two
+subtabs:
+
+- **Metadata** -- what GitHub reports about the repo (visibility,
+  default branch, last push), how many sessions it has, and what the
+  last codebase scan found.
+- **Wiki** -- a browsable set of pages about the codebase: an
+  overview, architecture, languages and frameworks, data model,
+  deployment, conventions, development workflow, getting started,
+  testing, and decisions. Each page is written from what the scan
+  found in that repo, so a page only appears when there is something
+  to write it from (no `data-model` page for a repo with no schema
+  files). Pages link to each other, link repo files to their GitHub
+  blob at the scanned commit, and include Mermaid diagrams where the
+  model judged one useful.
+
+Indexing is on demand: nothing is indexed until you press **Index
+wiki** (or **Re-index** / **Rebuild** on a repo that already has one).
+A build shallow-clones the repo, runs the deterministic scan
+(`app/wiki_scan.py`, no model involved), writes each applicable page
+through the local model (`app/wiki_indexer.py`), and only replaces the
+stored wiki once every page is done. A re-index at a commit that's
+already been built is a no-op; **Rebuild** forces it.
+
+Everything is stored in `data/factory.db`: `wiki_indexes` (one row per
+repo: status, progress, commit, the scan, and when the wiki was
+created, last built and last changed) and `wiki_pages` (one row per
+page). A build runs on a background thread in the API process; one
+left running when the process stops is marked failed on the next
+start.
+
 ## Setup
 
 ```bash
@@ -172,16 +205,19 @@ Open `http://localhost:3000`.
 ```
 app/
   config.py         env settings
-  store.py          sqlite: sessions + session_logs + repo registry
-  github_client.py  polling: assigned issues, new PR comments
+  store.py          sqlite: sessions, session_logs, repos, wiki tables
+  github_client.py  polling: assigned issues, new PR comments; repo metadata
   docker_runner.py  per-turn ephemeral containers on a per-session volume
   scheduler.py      the state machine (ask + code, stop support)
+  wiki_scan.py      deterministic codebase scan (languages, frameworks, docs, ...)
+  wiki_indexer.py   clones, picks wiki pages from the scan, writes them via the local model
   main.py           FastAPI routes + CORS for the web/ origin
 agent_image/
   Dockerfile        node+python+git+gh+opencode base image
   entrypoint.sh      clone/resume, run opencode, push, gh pr create
 web/                Next.js/TypeScript UI, its own process (npm run dev)
-  app/              layout, globals.css, the one page
-  components/       SessionList, ComposeDraft, SessionDetail, Markdown
-  lib/               api.ts (typed fetch client), types.ts
+  app/              layout, globals.css, the one page (Sessions / Repos tabs)
+  components/       SessionList, ComposeDraft, SessionDetail, ReposView,
+                    RepoDetail, RepoMetadataPanel, RepoWiki, Markdown, MermaidDiagram
+  lib/               api.ts (typed fetch client), types.ts, format.ts
 ```
