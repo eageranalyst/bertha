@@ -7,7 +7,7 @@ import { Markdown } from "@/components/Markdown";
 import { SkillForm } from "@/components/SkillForm";
 import { SkillMetadataEditor } from "@/components/SkillMetadataEditor";
 import { ApiError, api } from "@/lib/api";
-import { fmtTime } from "@/lib/format";
+import { fmtTime, splitFrontmatter } from "@/lib/format";
 import type { SkillWithContent } from "@/lib/types";
 
 export default function SkillPage() {
@@ -39,6 +39,8 @@ export default function SkillPage() {
     );
   }
   if (!skill) return <div className="empty-state">Loading…</div>;
+
+  const { frontmatter, body } = splitFrontmatter(skill.content);
 
   async function saveMetadata(metadata: Record<string, string>) {
     if (!skill) return;
@@ -87,7 +89,13 @@ export default function SkillPage() {
 
       <h3 className="meta-section">Content</h3>
       <div className="skill-body">
-        <Markdown>{skill.content}</Markdown>
+        {frontmatter !== null && (
+          <details className="skill-frontmatter">
+            <summary>Frontmatter</summary>
+            <pre>{frontmatter}</pre>
+          </details>
+        )}
+        <Markdown>{body}</Markdown>
       </div>
 
       <details className="skill-replace">

@@ -501,6 +501,9 @@ a.skill-row.selected { background: var(--accent-soft); }
 .skill-form-hint { font-size: 12px; color: var(--text-faint); }
 .skill-file-pick { cursor: pointer; display: inline-block; }
 .skill-body { border: 1px solid var(--border-soft); border-radius: var(--radius); background: var(--bg-raised); padding: 14px 18px; }
+.skill-frontmatter { margin-bottom: 14px; }
+.skill-frontmatter summary { cursor: pointer; font-size: 12px; color: var(--text-faint); margin-bottom: 6px; }
+.skill-frontmatter pre { margin: 0; padding: 10px 12px; background: var(--bg-sunken); border-radius: 6px; font-size: 12px; white-space: pre-wrap; color: var(--text-dim); }
 .skill-replace { margin-top: 18px; }
 .skill-replace summary { cursor: pointer; color: var(--text-dim); font-size: 13px; margin-bottom: 10px; }
 .skill-danger { margin-top: 28px; }
