@@ -21,7 +21,7 @@ function isNotFound(err: unknown) {
 }
 
 /** The wiki for one repo. `slug` is the page in the URL. */
-export function RepoWiki({ repoId, slug }: { repoId: number; slug: string }) {
+export function RepoWiki({ repoId, repoName, slug }: { repoId: number; repoName: string; slug: string }) {
   const router = useRouter();
   const [data, setData] = useState<WikiResponse | null>(null);
   const [page, setPage] = useState<WikiPage | null>(null);
@@ -34,7 +34,7 @@ export function RepoWiki({ repoId, slug }: { repoId: number; slug: string }) {
   const pages = useMemo(() => data?.pages ?? [], [data]);
   const currentUpdatedAt = pages.find((p) => p.slug === slug)?.updated_at ?? null;
 
-  const pageHref = useCallback((s: string) => `/repos/${repoId}/wiki/${s}`, [repoId]);
+  const pageHref = useCallback((s: string) => `/repos/${repoName}/wiki/${s}`, [repoName]);
 
   const refresh = useCallback(async () => {
     try {

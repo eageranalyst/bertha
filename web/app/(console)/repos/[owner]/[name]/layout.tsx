@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
+import { RepoContext } from "@/components/RepoContext";
 import { api } from "@/lib/api";
 import { fmtTime } from "@/lib/format";
 import type { Repo } from "@/lib/types";
@@ -12,11 +13,11 @@ const SUBTABS = [
   { segment: "wiki", label: "Wiki" },
 ];
 
-/** Header and subtabs for one repo. The subtab follows the URL. */
+/** Looks the repo up by its name, then shares it with the subtab pages. */
 export default function RepoLayout({ children }: { children: ReactNode }) {
-  const { id } = useParams<{ id: string }>();
+  const { owner, name } = useParams<{ owner: string; name: string }>();
   const pathname = usePathname();
-  const repoId = Number(id);
+  const fullName = `${owner}/${name}`;
   const [repo, setRepo] = useState<Repo | null>(null);
   const [missing, setMissing] = useState(false);
 
@@ -26,7 +27,7 @@ export default function RepoLayout({ children }: { children: ReactNode }) {
       .listRepos()
       .then((list) => {
         if (!alive) return;
-        const found = list.find((r) => r.id === repoId) ?? null;
+        const found = list.find((r) => r.full_name === fullName) ?? null;
         setRepo(found);
         setMissing(found === null);
       })
@@ -36,29 +37,29 @@ export default function RepoLayout({ children }: { children: ReactNode }) {
     return () => {
       alive = false;
     };
-  }, [repoId]);
+  }, [fullName]);
 
   if (missing) {
     return (
       <div className="empty-state">
-        That repo isn&apos;t registered. <Link href="/repos">Back to repos</Link>
+        {fullName} isn&apos;t registered. <Link href="/repos">Back to repos</Link>
       </div>
     );
   }
 
   return (
-    <>
+    <RepoContext.Provider value={repo}>
       <div id="detail-header">
         <div>
-          <span className="pill pill-type-repo">repo</span> <span className="ref">#{id}</span>
-          <h2>{repo?.full_name ?? "…"}</h2>
+          <span className="pill pill-type-repo">repo</span>
+          <h2>{fullName}</h2>
         </div>
         {repo && <div id="detail-meta">registered {fmtTime(repo.created_at)}</div>}
       </div>
 
       <nav className="subtabs" aria-label="Repo sections">
         {SUBTABS.map((t) => {
-          const href = `/repos/${id}/${t.segment}`;
+          const href = `/repos/${fullName}/${t.segment}`;
           const active = pathname.startsWith(href);
           return (
             <Link
@@ -74,6 +75,6 @@ export default function RepoLayout({ children }: { children: ReactNode }) {
       </nav>
 
       {children}
-    </>
+    </RepoContext.Provider>
   );
 }

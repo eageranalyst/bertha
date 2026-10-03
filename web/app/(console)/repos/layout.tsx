@@ -26,12 +26,13 @@ export default function ReposLayout({ children }: { children: ReactNode }) {
     return () => clearInterval(interval);
   }, [refresh]);
 
-  const match = pathname.match(/^\/repos\/(\d+)/);
-  const selectedId = match ? Number(match[1]) : null;
+  // /repos/owner/name/... -- the first two segments are the repo.
+  const match = pathname.match(/^\/repos\/([^/]+)\/([^/]+)/);
+  const selectedName = match ? `${match[1]}/${match[2]}` : null;
 
   return (
     <main>
-      <RepoList repos={repos} selectedId={selectedId} />
+      <RepoList repos={repos} selectedName={selectedName} />
       <section id="detail-pane">{children}</section>
     </main>
   );

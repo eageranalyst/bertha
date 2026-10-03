@@ -5,7 +5,7 @@ import type { Repo } from "@/lib/types";
 import { fmtTime } from "@/lib/format";
 import { WikiStatusPill } from "./WikiStatusPill";
 
-export function RepoList({ repos, selectedId }: { repos: Repo[]; selectedId: number | null }) {
+export function RepoList({ repos, selectedName }: { repos: Repo[]; selectedName: string | null }) {
   const router = useRouter();
 
   return (
@@ -17,8 +17,8 @@ export function RepoList({ repos, selectedId }: { repos: Repo[]; selectedId: num
         {repos.map((r) => (
           <div
             key={r.id}
-            className={"session-row" + (r.id === selectedId ? " selected" : "")}
-            onClick={() => router.push(`/repos/${r.id}/metadata`)}
+            className={"session-row" + (r.full_name === selectedName ? " selected" : "")}
+            onClick={() => router.push(`/repos/${r.full_name}/metadata`)}
           >
             <div className="session-row-top">
               <span className="session-row-title">{r.full_name}</span>
