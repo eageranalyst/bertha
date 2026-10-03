@@ -89,6 +89,19 @@ export default function Page() {
     await refreshDetail(selectedId);
   }
 
+  async function archiveSelected() {
+    if (typeof selectedId !== "number") return;
+    await api.archiveSession(selectedId);
+    await refreshSessions();
+    // Archived sessions drop out of the list (see visibleSessions below);
+    // keeping the detail pane open on one would be showing something no
+    // longer there, so close it too.
+    setSelectedId(null);
+    setSelectedSession(null);
+  }
+
+  const visibleSessions = sessions.filter((s) => s.status !== "archived");
+
   return (
     <div id="app">
       <header>
@@ -103,7 +116,7 @@ export default function Page() {
 
       <main>
         <SessionList
-          sessions={sessions}
+          sessions={visibleSessions}
           selectedId={selectedId}
           draftActive={draftActive}
           onNewSession={startDraft}
