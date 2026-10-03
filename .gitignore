@@ -5,3 +5,6 @@ data/*.db
 data/*.db-journal
 .venv/
 venv/
+
+# Claude Code worktrees / local state -- never part of this repo
+.claude/

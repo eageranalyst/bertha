@@ -10,6 +10,7 @@ keeps this simple: nothing here needs to be async.
 """
 
 import logging
+import os
 import threading
 from collections.abc import Callable
 from contextlib import asynccontextmanager
@@ -28,8 +29,12 @@ from .config import get_settings
 from .skills import parse_skill
 from .docker_runner import DockerRunner
 from .github_client import GitHubClient
+from .preflight import run_preflight
 from .scheduler import Scheduler
 from .wiki_indexer import WikiIndexer
+
+if os.environ.get("FACTORY_SKIP_PREFLIGHT") != "1":
+    run_preflight()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("factory.main")
@@ -257,8 +262,11 @@ def api_archive_session(session_id: int):
 
 @app.post("/api/sessions/{session_id}/reopen")
 def api_reopen_session(session_id: int):
-    _get_or_404(session_id)
-    store.update_session(session_id, status="queued", attention=None)
+    session = _get_or_404(session_id)
+    # Only queue a turn if there's actually something to send; otherwise
+    # it just goes back to waiting, like a freshly created session.
+    status = "queued" if session["pending_message"] else "idle"
+    store.update_session(session_id, status=status, attention=None)
     store.append_log(session_id, "system", "Reopened from UI")
     return store.get_session(session_id)
 

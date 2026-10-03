@@ -199,6 +199,11 @@ class Scheduler:
         # it again here would duplicate it.
         session = self._routed(session, session.get("pending_message") or "", "ask")
         messages = self._build_ask_messages(session["id"])
+        if not messages:
+            # Nothing to answer -- the model server rejects an empty
+            # message list, so don't call it.
+            store.update_session(session["id"], status="idle", pending_message=None)
+            return
         store.update_session(
             session["id"],
             status="running",

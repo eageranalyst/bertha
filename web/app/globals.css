@@ -614,3 +614,28 @@ a.subtab { display: inline-block; }
   .wiki-nav-heading { width: 100%; padding: 0; }
   .wiki-nav-link { width: auto; }
 }
+
+/* -- progress: the working row and the optimistic "sending" bubble -- */
+
+.pending-echo { opacity: 0.6; white-space: pre-wrap; }
+.msg-user .msg-main .msg-time { font-style: italic; }
+
+.msg-bubble.working {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.working-dots { display: inline-flex; gap: 3px; }
+.working-dots span {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--text-dim);
+  animation: working-pulse 1.2s infinite ease-in-out;
+}
+.working-dots span:nth-child(2) { animation-delay: 0.15s; }
+.working-dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes working-pulse {
+  0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
+}

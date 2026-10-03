@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 // Shared visual vocabulary for the transcript: a message always has a
 // speaker (avatar + label), and user messages are visually unmistakable
 // (right-aligned, accent color) -- the single strongest "who said this"
@@ -44,5 +46,28 @@ export function SystemDivider({ time, content }: { time: string; content: string
       <span>{content}</span>
       <span className="sys-time">{time}</span>
     </div>
+  );
+}
+
+// Shown while a turn is queued or running, so submitting never looks
+// like nothing happened. `since` is unix seconds of when the work began.
+export function WorkingIndicator({ since, queued }: { since: number; queued: boolean }) {
+  const [now, setNow] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now() / 1000), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const elapsed = Math.max(0, Math.floor(now - since));
+  return (
+    <MessageRow role="agent" label="Agent" time={""}>
+      <div className="msg-bubble working">
+        <span className="working-dots" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </span>
+        {queued ? "Queued" : "Working"} · {elapsed}s
+      </div>
+    </MessageRow>
   );
 }
