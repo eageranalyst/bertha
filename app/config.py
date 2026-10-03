@@ -26,6 +26,7 @@ class Settings:
     sleep_after_minutes: int
     db_path: str
     agent_image_tag: str
+    wiki_image_tag: str
     host: str
     port: int
     bot_name: str
@@ -69,6 +70,7 @@ def get_settings() -> Settings:
         sleep_after_minutes=int(os.environ.get("FACTORY_SLEEP_AFTER_MINUTES", "30")),
         db_path=os.environ.get("FACTORY_DB_PATH", "data/factory.db"),
         agent_image_tag=os.environ.get("FACTORY_AGENT_IMAGE_TAG", "factory-agent:latest"),
+        wiki_image_tag=os.environ.get("FACTORY_WIKI_IMAGE_TAG", "factory-wiki:latest"),
         host=os.environ.get("FACTORY_HOST", "127.0.0.1"),
         port=int(os.environ.get("FACTORY_PORT", "8787")),
         bot_name=os.environ.get("FACTORY_BOT_NAME", "factory-agent"),

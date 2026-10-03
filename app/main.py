@@ -31,6 +31,7 @@ logger = logging.getLogger("factory.main")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 AGENT_IMAGE_DIR = BASE_DIR / "agent_image"
+WIKI_IMAGE_DIR = BASE_DIR / "wiki_image"
 
 _state: dict[str, object] = {}
 
@@ -66,8 +67,12 @@ async def lifespan(app: FastAPI):
     store.fail_interrupted_wiki_indexes()
     for repo in settings.repos:
         store.create_repo(repo)
-    runner = DockerRunner(settings.agent_image_tag)
+    runner = DockerRunner(settings.agent_image_tag, settings.wiki_image_tag)
     runner.ensure_image(AGENT_IMAGE_DIR)
+    runner.ensure_image(WIKI_IMAGE_DIR, tag=settings.wiki_image_tag)
+    # A build container outlives this process but nothing here would ever
+    # collect its result, so clear any left from a previous run.
+    runner.remove_wiki_containers()
     gh = GitHubClient(settings.github_token, settings.github_bot_username)
     scheduler = Scheduler(settings, runner, gh)
     fast_thread = TickThread("fast", scheduler.tick_fast, settings.fast_poll_interval_seconds)
@@ -76,7 +81,7 @@ async def lifespan(app: FastAPI):
     slow_thread.start()
     _state["scheduler"] = scheduler
     _state["gh"] = gh
-    _state["wiki"] = WikiIndexer(settings)
+    _state["wiki"] = WikiIndexer(settings, runner)
     _state["threads"] = [fast_thread, slow_thread]
     logger.info(
         "Agent Factory started, watching %s every %ss (session progress every %ss)",

@@ -145,18 +145,30 @@ subtabs:
 
 Indexing is on demand: nothing is indexed until you press **Index
 wiki** (or **Re-index** / **Rebuild** on a repo that already has one).
-A build shallow-clones the repo, runs the deterministic scan
-(`app/wiki_scan.py`, no model involved), writes each applicable page
-through the local model (`app/wiki_indexer.py`), and only replaces the
-stored wiki once every page is done. A re-index at a commit that's
-already been built is a no-op; **Rebuild** forces it.
+Each build runs in its own container from `wiki_image/` (the same
+approach code sessions use), so the repo is cloned and scanned in
+isolation. The container shallow-clones the repo, runs the
+deterministic scan (`app/wiki_scan.py`), writes each applicable page
+through the local model, and leaves its result in `/data/wiki.json`.
+The API follows its progress from the container logs and only replaces
+the stored wiki once the container has produced every page. A re-index
+at a commit that's already been built is a no-op; **Rebuild** forces
+it.
+
+The build image is built on API startup, tagged
+`FACTORY_WIKI_IMAGE_TAG` (default `factory-wiki:latest`). The app
+package is mounted into the container at run time, so Python changes
+don't need an image rebuild. Build containers are labelled
+`factory.wiki=1`, and any left from a previous API process are removed
+at startup. Note that `uvicorn --reload` restarts the API when Python
+files change, which abandons a build in progress; the build container
+keeps running, but nothing collects its result.
 
 Everything is stored in `data/factory.db`: `wiki_indexes` (one row per
 repo: status, progress, commit, the scan, and when the wiki was
 created, last built and last changed) and `wiki_pages` (one row per
-page). A build runs on a background thread in the API process; one
-left running when the process stops is marked failed on the next
-start.
+page). A build that's interrupted by an API restart is marked failed
+on the next start.
 
 ## Setup
 
@@ -210,11 +222,15 @@ app/
   docker_runner.py  per-turn ephemeral containers on a per-session volume
   scheduler.py      the state machine (ask + code, stop support)
   wiki_scan.py      deterministic codebase scan (languages, frameworks, docs, ...)
-  wiki_indexer.py   clones, picks wiki pages from the scan, writes them via the local model
+  wiki_build.py     clone, scan and page writing; runs inside the wiki container
+  wiki_worker.py    the wiki container's entrypoint
+  wiki_indexer.py   host side: starts a build container, follows it, stores the result
   main.py           FastAPI routes + CORS for the web/ origin
 agent_image/
   Dockerfile        node+python+git+gh+opencode base image
   entrypoint.sh      clone/resume, run opencode, push, gh pr create
+wiki_image/
+  Dockerfile        python + git, for wiki build containers
 web/                Next.js/TypeScript UI, its own process (npm run dev)
   app/              layout, globals.css, the one page (Sessions / Repos tabs)
   components/       SessionList, ComposeDraft, SessionDetail, ReposView,
