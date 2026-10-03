@@ -165,13 +165,29 @@ else
     fi
 fi
 
+# A repo turn is one shot: nobody answers questions while the agent works,
+# so the instructions say to finish the task in this run and state what was
+# done. The final message is reused as the pull request description.
+MESSAGE="$PROMPT"
+if [ -n "$REPO" ]; then
+    MESSAGE="You are working in the git checkout at /data/repo, on branch $BRANCH_NAME. Carry the task through to finished work in this one run:
+- Make the change the task needs, and keep it focused on what was asked.
+- Run the project's own tests or checks when you can, and fix anything you broke.
+- Nobody will answer questions while you work. Where the task is ambiguous, pick the most reasonable reading and say what you chose.
+- Your final message becomes the pull request description: what changed, why, and anything you could not do.
+- If the task needs no code change, say so in your final message and stop.
+
+Task:
+$PROMPT"
+fi
+
 echo "=== Running agent (opencode session ${OPENCODE_SESSION_ID:-<new>}, model $OPENCODE_MODEL) ==="
 set +e
 if [ -n "${OPENCODE_SESSION_ID:-}" ]; then
-    opencode run "$PROMPT" -s "$OPENCODE_SESSION_ID" -m "$OPENCODE_MODEL" \
+    opencode run "$MESSAGE" -s "$OPENCODE_SESSION_ID" -m "$OPENCODE_MODEL" \
         --format json > /data/last_result.ndjson
 else
-    opencode run "$PROMPT" -m "$OPENCODE_MODEL" \
+    opencode run "$MESSAGE" -m "$OPENCODE_MODEL" \
         --format json > /data/last_result.ndjson
 fi
 AGENT_EXIT=$?
@@ -188,17 +204,48 @@ if [ -n "$REPO" ]; then
     if [ -n "$(git status --porcelain)" ]; then
         git add -A
         git commit -m "${COMMIT_MESSAGE:-agent: apply changes for $BRANCH_NAME}" >/dev/null
-        git push origin "$BRANCH_NAME"
         echo "FACTORY_PUSHED=1"
     else
         echo "FACTORY_PUSHED=0"
     fi
 
-    if [ -z "${PR_NUMBER:-}" ] || [ "${PR_NUMBER}" = "0" ]; then
+    # Commits this branch has beyond the default branch. Zero means the
+    # agent changed nothing, which is a normal outcome, not a failure.
+    AHEAD=$(git rev-list --count "origin/HEAD..HEAD" 2>/dev/null || echo 0)
+    if [ "$AHEAD" -eq 0 ]; then
+        echo "FACTORY_NO_CHANGES=1"
+    else
+        git push origin "$BRANCH_NAME"
+    fi
+
+    if [ "$AHEAD" -gt 0 ] && { [ -z "${PR_NUMBER:-}" ] || [ "${PR_NUMBER}" = "0" ]; }; then
+        # The agent's final messages, which describe what it did.
+        python3 - > /data/pr_summary.md <<'PY' || true
+import json
+texts = []
+try:
+    with open("/data/last_result.ndjson") as fh:
+        for line in fh:
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            part = event.get("part") or {}
+            if event.get("type") == "text" and part.get("text"):
+                texts.append(part["text"])
+except OSError:
+    pass
+print("\n".join(texts).strip()[-4000:])
+PY
+        {
+            if [ -s /data/pr_summary.md ]; then cat /data/pr_summary.md; echo; fi
+            echo "${PR_BODY:-Automated changes from factory agent.}"
+        } > /data/pr_body.md
+
         set +e
         PR_OUTPUT=$(gh pr create --repo "$REPO" --head "$BRANCH_NAME" \
             --title "${PR_TITLE:-Agent: $BRANCH_NAME}" \
-            --body "${PR_BODY:-Automated changes from factory agent.}" 2>&1)
+            --body-file /data/pr_body.md 2>&1)
         PR_STATUS=$?
         set -e
         echo "$PR_OUTPUT"
@@ -206,6 +253,7 @@ if [ -n "$REPO" ]; then
             PR_NUM=$(echo "$PR_OUTPUT" | grep -oE '/pull/[0-9]+' | grep -oE '[0-9]+' | tail -1)
             echo "FACTORY_PR_NUMBER=${PR_NUM}"
         else
+            # Not fatal: the branch is pushed and the next turn retries the PR.
             echo "FACTORY_PR_CREATE_FAILED=1"
         fi
     fi

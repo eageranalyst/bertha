@@ -308,8 +308,11 @@ class Scheduler:
         if exit_code != 0 or agent_failed:
             new_status = "failed"
         elif session["repo"]:
-            # a repo is attached: success means a PR exists
-            new_status = "pr_open" if pr_number else "failed"
+            # A PR means the work is waiting on review. Without one the turn
+            # still finished cleanly -- the agent changed nothing, or the PR
+            # couldn't be opened and will be retried on the next turn -- so
+            # it's idle, not failed.
+            new_status = "pr_open" if pr_number else "idle"
         else:
             # no repo attached: nothing to push, so "ran cleanly" is success
             new_status = "idle"
