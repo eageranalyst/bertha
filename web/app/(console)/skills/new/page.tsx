@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { SkillForm } from "@/components/SkillForm";
+import { SkillEditor } from "@/components/SkillEditor";
 import { api } from "@/lib/api";
 
 export default function InstallSkillPage() {
@@ -20,7 +20,7 @@ export default function InstallSkillPage() {
         <code>description</code>. Installing a skill whose name already exists updates it: the version
         goes up, and its metadata and repo links stay.
       </p>
-      <SkillForm submitLabel="Save skill" onSubmit={install} />
+      <SkillEditor initialContent="" saveLabel="Save skill" onSave={install} />
     </div>
   );
 }

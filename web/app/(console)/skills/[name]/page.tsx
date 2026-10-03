@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Markdown } from "@/components/Markdown";
-import { SkillForm } from "@/components/SkillForm";
+import { SkillEditor } from "@/components/SkillEditor";
 import { SkillMetadataEditor } from "@/components/SkillMetadataEditor";
 import { ApiError, api } from "@/lib/api";
 import { fmtTime, splitFrontmatter } from "@/lib/format";
@@ -15,6 +15,7 @@ export default function SkillPage() {
   const router = useRouter();
   const [skill, setSkill] = useState<SkillWithContent | null>(null);
   const [missing, setMissing] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -28,6 +29,7 @@ export default function SkillPage() {
 
   useEffect(() => {
     setSkill(null);
+    setEditing(false);
     refresh();
   }, [refresh]);
 
@@ -47,15 +49,12 @@ export default function SkillPage() {
     setSkill(await api.setSkillMetadata(skill.id, metadata));
   }
 
-  // Replacing the markdown bumps the version. If the new frontmatter names a
-  // different skill, that's a separate skill, so go to it.
-  async function replace(content: string) {
-    const saved = await api.saveSkill(content);
-    if (saved.name !== name) {
-      router.push(`/skills/${saved.name}`);
-      return;
-    }
+  // The editor pins the name, so this updates the same skill. Changed
+  // content bumps the version; metadata and repo links stay.
+  async function saveContent(content: string) {
+    await api.saveSkill(content);
     setError(null);
+    setEditing(false);
     await refresh();
   }
 
@@ -87,21 +86,35 @@ export default function SkillPage() {
       <h3 className="meta-section">Metadata</h3>
       <SkillMetadataEditor key={skill.id} metadata={skill.metadata} onSave={saveMetadata} />
 
-      <h3 className="meta-section">Content</h3>
-      <div className="skill-body">
-        {frontmatter !== null && (
-          <details className="skill-frontmatter" open>
-            <summary>Frontmatter</summary>
-            <pre>{frontmatter}</pre>
-          </details>
+      <div className="skill-content-header">
+        <h3 className="meta-section">Content</h3>
+        {!editing && (
+          <button type="button" className="btn-ghost" onClick={() => setEditing(true)}>
+            Edit
+          </button>
         )}
-        <Markdown>{body}</Markdown>
       </div>
 
-      <details className="skill-replace">
-        <summary>Replace the SKILL.md (bumps the version)</summary>
-        <SkillForm submitLabel="Save new version" onSubmit={replace} />
-      </details>
+      {editing ? (
+        <SkillEditor
+          key={skill.version}
+          initialContent={skill.content}
+          expectedName={skill.name}
+          saveLabel="Save changes"
+          onSave={saveContent}
+          onCancel={() => setEditing(false)}
+        />
+      ) : (
+        <div className="skill-body">
+          {frontmatter !== null && (
+            <details className="skill-frontmatter" open>
+              <summary>Frontmatter</summary>
+              <pre>{frontmatter}</pre>
+            </details>
+          )}
+          <Markdown>{body}</Markdown>
+        </div>
+      )}
 
       <div className="skill-danger">
         <button type="button" className="btn-danger" onClick={remove}>
