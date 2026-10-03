@@ -223,6 +223,13 @@ document.getElementById("message-form").addEventListener("submit", async (e) => 
   await refreshDetail();
 });
 
+document.getElementById("message-text").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    document.getElementById("message-form").requestSubmit();
+  }
+});
+
 btnStop.addEventListener("click", async () => {
   if (typeof selectedId !== "number") return;
   try {
