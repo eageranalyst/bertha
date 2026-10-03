@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { LogEntry, Session } from "@/lib/types";
 import { Markdown } from "./Markdown";
+import { AgentOutputLog } from "./AgentOutputLog";
 
 const MARKDOWN_KINDS = new Set(["ask_response", "user_message", "pr_comment"]);
 
@@ -87,6 +88,8 @@ export function SessionDetail({
             </span>
             {MARKDOWN_KINDS.has(l.kind) ? (
               <Markdown>{l.content}</Markdown>
+            ) : l.kind === "agent_output" ? (
+              <AgentOutputLog content={l.content} />
             ) : (
               <div className="log-body" style={{ whiteSpace: "pre-wrap" }}>
                 {l.content}
