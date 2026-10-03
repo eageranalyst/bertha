@@ -477,6 +477,15 @@ a:hover { text-decoration: underline; }
 .mermaid-error { margin: 14px 0; }
 .mermaid-error-message { color: var(--danger); font-size: 12px; margin-bottom: 6px; }
 
+/* -- links styled as controls (routes, not buttons) ------------------ */
+
+a.btn-primary, a.btn-ghost { display: inline-block; text-align: center; text-decoration: none; }
+a.btn-primary:hover, a.btn-ghost:hover { text-decoration: none; }
+a.btn-block { display: block; }
+a.top-tab, a.subtab, a.wiki-nav-link { text-decoration: none; }
+a.top-tab { display: inline-block; }
+a.subtab { display: inline-block; }
+
 /* -- friendly empty states (not indexed / page missing) ------------ */
 
 .wiki-empty {

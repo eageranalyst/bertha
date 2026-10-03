@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import { fmtTime } from "@/lib/format";
@@ -18,17 +20,21 @@ function isNotFound(err: unknown) {
   return err instanceof ApiError && err.status === 404;
 }
 
-export function RepoWiki({ repoId }: { repoId: number }) {
+/** The wiki for one repo. `slug` is the page in the URL. */
+export function RepoWiki({ repoId, slug }: { repoId: number; slug: string }) {
+  const router = useRouter();
   const [data, setData] = useState<WikiResponse | null>(null);
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [page, setPage] = useState<WikiPage | null>(null);
-  const [missingSlug, setMissingSlug] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const index = data?.index ?? null;
   const indexing = index?.status === "indexing";
   const pages = useMemo(() => data?.pages ?? [], [data]);
+  const currentUpdatedAt = pages.find((p) => p.slug === slug)?.updated_at ?? null;
+
+  const pageHref = useCallback((s: string) => `/repos/${repoId}/wiki/${s}`, [repoId]);
 
   const refresh = useCallback(async () => {
     try {
@@ -49,34 +55,20 @@ export function RepoWiki({ repoId }: { repoId: number }) {
     return () => clearInterval(interval);
   }, [indexing, refresh]);
 
-  const current =
-    pages.find((p) => p.slug === selectedSlug) ??
-    pages.find((p) => p.slug === HOME_SLUG) ??
-    pages[0] ??
-    null;
-  const currentSlug = current?.slug ?? null;
-  const currentUpdatedAt = current?.updated_at ?? null;
-
   // Refetch the body when the page changes, or when a rebuild rewrote it.
   useEffect(() => {
-    if (!currentSlug) {
-      setPage(null);
-      setMissingSlug(null);
-      return;
-    }
     let alive = true;
+    setPage(null);
+    setMissing(false);
     api
-      .getWikiPage(repoId, currentSlug)
+      .getWikiPage(repoId, slug)
       .then((p) => {
-        if (!alive) return;
-        setPage(p);
-        setMissingSlug(null);
+        if (alive) setPage(p);
       })
       .catch((err) => {
         if (!alive) return;
         if (isNotFound(err)) {
-          setPage(null);
-          setMissingSlug(currentSlug);
+          setMissing(true);
         } else {
           setError(errorText(err));
         }
@@ -84,7 +76,7 @@ export function RepoWiki({ repoId }: { repoId: number }) {
     return () => {
       alive = false;
     };
-  }, [repoId, currentSlug, currentUpdatedAt]);
+  }, [repoId, slug, currentUpdatedAt]);
 
   const sections = useMemo(() => {
     const groups: { name: string; pages: typeof pages }[] = [];
@@ -171,27 +163,27 @@ export function RepoWiki({ repoId }: { repoId: number }) {
               <div key={section.name} className="wiki-nav-section">
                 <div className="wiki-nav-heading">{section.name}</div>
                 {section.pages.map((p) => (
-                  <button
+                  <Link
                     key={p.slug}
-                    type="button"
-                    className={"wiki-nav-link" + (p.slug === currentSlug ? " active" : "")}
-                    onClick={() => setSelectedSlug(p.slug)}
+                    href={pageHref(p.slug)}
+                    className={"wiki-nav-link" + (p.slug === slug ? " active" : "")}
+                    aria-current={p.slug === slug ? "page" : undefined}
                   >
                     {p.title}
-                  </button>
+                  </Link>
                 ))}
               </div>
             ))}
           </nav>
 
           <article className="wiki-article">
-            {missingSlug ? (
-              <WikiPageMissing slug={missingSlug} onHome={() => setSelectedSlug(HOME_SLUG)} />
+            {missing ? (
+              <WikiPageMissing slug={slug} onHome={() => router.push(pageHref(HOME_SLUG))} />
             ) : page ? (
               <>
                 <h2 className="wiki-title">{page.title}</h2>
                 <div className="wiki-page-meta">Updated {fmtTime(page.updated_at)}</div>
-                <Markdown onInternalLink={setSelectedSlug}>{page.body}</Markdown>
+                <Markdown onInternalLink={(s) => router.push(pageHref(s))}>{page.body}</Markdown>
               </>
             ) : (
               <div className="empty-state">Loading…</div>

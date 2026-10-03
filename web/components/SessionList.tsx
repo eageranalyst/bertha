@@ -1,35 +1,30 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { Session } from "@/lib/types";
 
 export function SessionList({
   sessions,
   selectedId,
   draftActive,
-  onNewSession,
-  onSelectDraft,
-  onSelectSession,
 }: {
   sessions: Session[];
-  selectedId: number | "draft" | null;
+  selectedId: number | null;
   draftActive: boolean;
-  onNewSession: () => void;
-  onSelectDraft: () => void;
-  onSelectSession: (id: number) => void;
 }) {
+  const router = useRouter();
+
   return (
     <section id="session-list-pane">
       <div className="list-pane-header">
-        <button type="button" className="btn-primary btn-block" onClick={onNewSession}>
+        <Link href="/sessions/new" className="btn-primary btn-block">
           + New session
-        </button>
+        </Link>
       </div>
       <div id="session-rows">
         {draftActive && (
-          <div
-            className={"session-row is-draft" + (selectedId === "draft" ? " selected" : "")}
-            onClick={onSelectDraft}
-          >
+          <div className="session-row is-draft selected">
             <div className="session-row-top">
               <span className="session-row-title">New session</span>
             </div>
@@ -42,7 +37,7 @@ export function SessionList({
           <div
             key={s.id}
             className={"session-row" + (s.id === selectedId ? " selected" : "")}
-            onClick={() => onSelectSession(s.id)}
+            onClick={() => router.push(`/sessions/${s.id}`)}
           >
             <div className="session-row-top">
               <span className={`pill pill-type-${s.session_type}`}>{s.session_type}</span>
