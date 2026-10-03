@@ -192,7 +192,7 @@ SYSTEM_PROMPT = """You write one page of a codebase wiki for engineers joining t
 Rules:
 - Output Markdown only. Do not wrap the whole answer in a code fence and do not write a top-level title; the page title is added for you. Start with a short summary paragraph, then use ## and ### headings.
 - Ground every claim in the evidence. Name real files, modules, commands, config keys and environment variables. If the evidence does not show something, say it is not documented rather than guessing.
-- When a diagram genuinely helps, include one fenced ```mermaid block using flowchart, erDiagram, sequenceDiagram or classDiagram. Keep it to about 25 nodes or fewer, and quote labels that contain punctuation.
+- When a diagram genuinely helps, include one fenced ```mermaid block using flowchart, erDiagram, sequenceDiagram or classDiagram. Keep it to about 25 nodes or fewer. Every flowchart node needs an id with its label in brackets: write `api["API server"] --> db[("Database")]`, never `"API server" --> "Database"`. Keep ids to letters, digits and underscores.
 - Link to other wiki pages with Markdown links whose target is the page slug, for example [Data model](data-model). Only use slugs from the list you are given.
 - Refer to repository files by their path in backticks, for example `app/store.py`.
 - Prefer tables and short lists to long prose. Aim for roughly 300 to 900 words."""
