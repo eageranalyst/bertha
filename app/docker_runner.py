@@ -23,6 +23,7 @@ logger = logging.getLogger("factory.docker_runner")
 # Label on every wiki build container, so leftovers from a previous API
 # process can be found and removed at startup.
 WIKI_LABEL = "factory.wiki"
+WIKI_REPO_LABEL = "factory.repo"
 WIKI_OUTPUT_PATH = "/data/wiki.json"
 
 
@@ -94,7 +95,7 @@ class DockerRunner:
             environment={**env, "PYTHONDONTWRITEBYTECODE": "1"},
             volumes={str(app_dir): {"bind": "/src/app", "mode": "ro"}},
             extra_hosts={"host.docker.internal": "host-gateway"},
-            labels={WIKI_LABEL: "1"},
+            labels={WIKI_LABEL: "1", WIKI_REPO_LABEL: repo},
             detach=True,
             name=name,
         )
@@ -110,9 +111,16 @@ class DockerRunner:
                 raise RuntimeError(f"{path} in the build container is not a regular file")
             return extracted.read()
 
-    def remove_wiki_containers(self) -> None:
+    def wiki_builds(self) -> list[tuple[str, str]]:
+        """(repo, container id) for every wiki build container, running or
+        stopped, so a restarted API can pick their output back up.
+        """
+        builds = []
         for container in self.client.containers.list(all=True, filters={"label": f"{WIKI_LABEL}=1"}):
-            container.remove(force=True)
+            repo = container.labels.get(WIKI_REPO_LABEL)
+            if repo:
+                builds.append((repo, container.id))
+        return builds
 
 
 def container_suffix() -> str:

@@ -131,6 +131,9 @@ def _add_missing_session_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE sessions ADD COLUMN attention TEXT")
     if "workspace" not in cols:
         conn.execute("ALTER TABLE sessions ADD COLUMN workspace TEXT")
+    page_cols = {row[1] for row in conn.execute("PRAGMA table_info(wiki_pages)").fetchall()}
+    if "commit_sha" not in page_cols:
+        conn.execute("ALTER TABLE wiki_pages ADD COLUMN commit_sha TEXT")
 
 
 def workspace_of(session: dict[str, Any]) -> str:
@@ -454,28 +457,43 @@ def get_wiki_page(repo: str, slug: str) -> dict[str, Any] | None:
         return _row_to_dict(row) if row else None
 
 
-def replace_wiki_pages(repo: str, pages: list[dict[str, Any]]) -> None:
-    """Upserts the given pages by slug and drops any page of this repo
-    whose slug isn't in the list. One transaction, so a reader never
-    sees a half-written wiki.
+def save_wiki_page(repo: str, page: dict[str, Any], commit_sha: str) -> None:
+    """Stores one finished page, as it's written. `commit_sha` records which
+    commit it was written from, so a later build can tell it's current.
     """
     now = time.time()
     with _connect() as conn:
-        for p in pages:
-            conn.execute(
-                """
-                INSERT INTO wiki_pages (repo, slug, title, section, position, body, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(repo, slug) DO UPDATE SET
-                    title = excluded.title,
-                    section = excluded.section,
-                    position = excluded.position,
-                    body = excluded.body,
-                    updated_at = excluded.updated_at
-                """,
-                (repo, p["slug"], p["title"], p["section"], p["position"], p["body"], now, now),
-            )
-        slugs = [p["slug"] for p in pages]
+        conn.execute(
+            """
+            INSERT INTO wiki_pages
+                (repo, slug, title, section, position, body, commit_sha, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(repo, slug) DO UPDATE SET
+                title = excluded.title,
+                section = excluded.section,
+                position = excluded.position,
+                body = excluded.body,
+                commit_sha = excluded.commit_sha,
+                updated_at = excluded.updated_at
+            """,
+            (repo, page["slug"], page["title"], page["section"], page["position"],
+             page["body"], commit_sha, now, now),
+        )
+
+
+def wiki_page_commits(repo: str) -> dict[str, str]:
+    """The commit each stored page of this repo was written from."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT slug, commit_sha FROM wiki_pages WHERE repo = ? AND commit_sha IS NOT NULL",
+            (repo,),
+        ).fetchall()
+        return {r["slug"]: r["commit_sha"] for r in rows}
+
+
+def prune_wiki_pages(repo: str, slugs: list[str]) -> None:
+    """Drops this repo's pages that aren't in the finished build's list."""
+    with _connect() as conn:
         if slugs:
             placeholders = ", ".join("?" for _ in slugs)
             conn.execute(

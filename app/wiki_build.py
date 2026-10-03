@@ -211,11 +211,17 @@ def build(
     model_base_url: str,
     model_id: str,
     git_base: str,
+    stored_commits: dict[str, str],
     progress: Callable[[str], None],
-) -> dict[str, Any]:
-    """Clones the repo and writes its wiki. Returns either
-    {"unchanged": True, "commit_sha": ...} when the commit is the one
-    already built, or the commit, scan and pages otherwise.
+    emit_meta: Callable[[dict[str, Any]], None],
+    emit_page: Callable[[dict[str, Any]], None],
+) -> None:
+    """Clones the repo and writes its wiki, reporting as it goes.
+
+    emit_meta is called once with the commit and the page list (or
+    unchanged=True when the commit is already built). emit_page is called
+    as each page finishes, so nothing is lost if the build stops partway.
+    A page already stored for this commit (`stored_commits`) is skipped.
     """
     workdir = Path(tempfile.mkdtemp(prefix="wiki-"))
     try:
@@ -224,7 +230,8 @@ def build(
         _clone(repo, checkout, token, git_base)
         sha = _head_sha(checkout)
         if known_sha == sha and not force:
-            return {"unchanged": True, "commit_sha": sha}
+            emit_meta({"unchanged": True, "commit_sha": sha, "slugs": []})
+            return
 
         progress("Scanning files")
         scan = scan_repo(checkout)
@@ -234,21 +241,29 @@ def build(
         specs = [spec for spec in PAGES if spec.applies(scan)]
         files = set(scan.files)
         slugs = {spec.slug for spec in specs}
-        pages = []
+        emit_meta({
+            "unchanged": False,
+            "commit_sha": sha,
+            "scan": scan.to_dict(),
+            "slugs": [spec.slug for spec in specs],
+        })
+
         for position, spec in enumerate(specs):
+            if not force and stored_commits.get(spec.slug) == sha:
+                progress(f"Kept {position + 1}/{len(specs)}: {spec.title}")
+                continue
             progress(f"Writing {position + 1}/{len(specs)}: {spec.title}")
             evidence = _select_evidence(checkout, scan, spec)
             raw = _write_page(model_base_url, model_id, repo, sha, scan, spec, evidence, specs)
             body = _clean_body(raw, repo, sha, slugs, files)
             body += _sources_section(repo, sha, [rel for rel, _ in evidence])
-            pages.append({
+            emit_page({
                 "slug": spec.slug,
                 "title": spec.title,
                 "section": spec.section,
                 "position": position,
                 "body": body,
             })
-        return {"unchanged": False, "commit_sha": sha, "scan": scan.to_dict(), "pages": pages}
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
