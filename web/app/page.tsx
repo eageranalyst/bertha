@@ -25,12 +25,23 @@ export default function Page() {
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
+  // These run on a timer. If the API is briefly unreachable (restarting,
+  // or the laptop just woke), keep the last good list and let the next
+  // tick retry, rather than leaving an unhandled rejection behind.
   const refreshSessions = useCallback(async () => {
-    setSessions(await api.listSessions());
+    try {
+      setSessions(await api.listSessions());
+    } catch {
+      /* API unreachable; the next tick retries */
+    }
   }, []);
 
   const refreshRepos = useCallback(async () => {
-    setRepos(await api.listRepos());
+    try {
+      setRepos(await api.listRepos());
+    } catch {
+      /* API unreachable; the next tick retries */
+    }
   }, []);
 
   const refreshDetail = useCallback(async (id: number) => {
