@@ -4,7 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import type { LogEntry, Session } from "@/lib/types";
 import { Markdown } from "./Markdown";
 import { AgentOutputLog } from "./AgentOutputLog";
-import { MessageRow, MessageBubble, SystemDivider, type Role } from "./ChatPrimitives";
+import {
+  MessageRow,
+  MessageBubble,
+  SystemDivider,
+  WorkingIndicator,
+  type Role,
+} from "./ChatPrimitives";
 
 function fmtTime(ts: number | null | undefined) {
   if (!ts) return "-";
@@ -39,7 +45,29 @@ export function SessionDetail({
   onReopen: () => Promise<void>;
 }) {
   const [text, setText] = useState("");
+  // The message you just sent, shown immediately (before the server
+  // has logged it). Dropped once the matching log entry arrives.
+  const [pendingEcho, setPendingEcho] = useState<{ text: string; at: number } | null>(null);
   const logsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setPendingEcho(null);
+  }, [session.id]);
+
+  useEffect(() => {
+    if (!pendingEcho) return;
+    const confirmed = logs.some(
+      (l) =>
+        l.kind === "user_message" &&
+        l.content === pendingEcho.text &&
+        l.created_at >= pendingEcho.at - 5
+    );
+    if (confirmed) setPendingEcho(null);
+  }, [logs, pendingEcho]);
+
+  const lastUserMessage = [...logs].reverse().find((l) => l.kind === "user_message");
+  const workingSince =
+    pendingEcho?.at ?? lastUserMessage?.created_at ?? session.last_activity_at;
   // Set when the user sends a message, so the transcript scrolls to it
   // even if they'd scrolled up to read earlier output.
   const forceScrollRef = useRef(false);
@@ -64,6 +92,7 @@ export function SessionDetail({
     if (!trimmed) return;
     setText("");
     forceScrollRef.current = true;
+    setPendingEcho({ text: trimmed, at: Date.now() / 1000 });
     await onMessage(trimmed);
   }
 
@@ -119,6 +148,16 @@ export function SessionDetail({
             </MessageRow>
           );
         })}
+        {pendingEcho && (
+          <MessageRow role="user" label="You" time="sending…">
+            <MessageBubble>
+              <div className="pending-echo">{pendingEcho.text}</div>
+            </MessageBubble>
+          </MessageRow>
+        )}
+        {(session.status === "running" || session.status === "queued") && (
+          <WorkingIndicator since={workingSince} queued={session.status === "queued"} />
+        )}
       </div>
 
       <form
