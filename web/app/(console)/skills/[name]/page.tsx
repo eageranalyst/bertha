@@ -90,7 +90,7 @@ export default function SkillPage() {
       <h3 className="meta-section">Content</h3>
       <div className="skill-body">
         {frontmatter !== null && (
-          <details className="skill-frontmatter">
+          <details className="skill-frontmatter" open>
             <summary>Frontmatter</summary>
             <pre>{frontmatter}</pre>
           </details>
