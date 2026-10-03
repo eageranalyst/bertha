@@ -152,6 +152,10 @@ if [ -n "$REPO" ]; then
     if git ls-remote --exit-code --heads origin "$BRANCH_NAME" >/dev/null 2>&1; then
         git fetch origin "$BRANCH_NAME"
         git checkout -B "$BRANCH_NAME" "origin/$BRANCH_NAME"
+    elif git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
+        # Left over from an earlier turn that never reached the remote: keep
+        # its commits rather than failing to create the branch again.
+        git checkout "$BRANCH_NAME"
     else
         git checkout -b "$BRANCH_NAME"
     fi

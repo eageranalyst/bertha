@@ -46,16 +46,12 @@ class DockerRunner:
             if "stream" in chunk:
                 logger.debug(chunk["stream"].rstrip())
 
-    def volume_name(self, session_id: int) -> str:
-        return f"factory-ws-{session_id}"
-
-    def start_turn(self, session_id: int, env: dict[str, str]) -> str:
-        volume = self.volume_name(session_id)
-        self.client.volumes.create(name=volume)
+    def start_turn(self, session_id: int, workspace: str, env: dict[str, str]) -> str:
+        self.client.volumes.create(name=workspace)
         container = self.client.containers.run(
             self.image_tag,
             environment=env,
-            volumes={volume: {"bind": "/data", "mode": "rw"}},
+            volumes={workspace: {"bind": "/data", "mode": "rw"}},
             # Docker Desktop (macOS/Windows) already resolves this; on Linux
             # Docker Engine it needs this explicit mapping to reach a model
             # server bound to localhost on the host.
@@ -79,9 +75,9 @@ class DockerRunner:
         except NotFound:
             pass
 
-    def remove_volume(self, session_id: int) -> None:
+    def remove_volume(self, workspace: str) -> None:
         try:
-            self.client.volumes.get(self.volume_name(session_id)).remove(force=True)
+            self.client.volumes.get(workspace).remove(force=True)
         except NotFound:
             pass
 

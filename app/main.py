@@ -181,7 +181,9 @@ def _teardown_volume(session_id: int, scheduler: Scheduler) -> None:
     alongside it so a later Reopen starts a fresh OpenCode session
     instead of trying to -resume one whose backing data is gone.
     """
-    scheduler.runner.remove_volume(session_id)
+    session = store.get_session(session_id)
+    if session:
+        scheduler.runner.remove_volume(store.workspace_of(session))
     store.update_session(session_id, harness_session_id=None)
 
 

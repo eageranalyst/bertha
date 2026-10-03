@@ -129,6 +129,16 @@ def _add_missing_session_columns(conn: sqlite3.Connection) -> None:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
     if "attention" not in cols:
         conn.execute("ALTER TABLE sessions ADD COLUMN attention TEXT")
+    if "workspace" not in cols:
+        conn.execute("ALTER TABLE sessions ADD COLUMN workspace TEXT")
+
+
+def workspace_of(session: dict[str, Any]) -> str:
+    """The docker volume holding a session's checkout and OpenCode state.
+    Sessions made before per-session names were introduced have none
+    stored, and keep the id-based volume they were created with.
+    """
+    return session.get("workspace") or f"factory-ws-{session['id']}"
 
 
 def _migrate_pre_redesign_sessions_table(conn: sqlite3.Connection) -> None:
@@ -209,21 +219,26 @@ def create_session(
     pending_message: str | None = None,
 ) -> int:
     now = time.time()
-    ref = uuid.uuid4().hex[:7]
     # Nothing to run yet without an opening message -- sit idle (e.g. a
     # bare session created with nothing filled in) rather than launching
     # a turn with an empty prompt.
     status = "queued" if pending_message else "idle"
     with _connect() as conn:
+        # The ref names the branch and the workspace volume, so it has to be
+        # unique among sessions. Ids aren't: a fresh database starts again at
+        # 1 and would reuse names left behind by earlier sessions.
+        ref = uuid.uuid4().hex[:7]
+        while conn.execute("SELECT 1 FROM sessions WHERE ref = ?", (ref,)).fetchone():
+            ref = uuid.uuid4().hex[:7]
         cur = conn.execute(
             """
             INSERT INTO sessions
                 (ref, session_type, repo, issue_number, title, branch_name,
-                 pending_message, status, last_activity_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 pending_message, status, workspace, last_activity_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (ref, session_type, repo, issue_number, title, branch_name,
-             pending_message, status, now, now, now),
+             pending_message, status, f"factory-ws-{ref}", now, now, now),
         )
         return cur.lastrowid
 

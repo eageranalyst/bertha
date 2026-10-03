@@ -239,7 +239,9 @@ class Scheduler:
         # (api_send_message, api_new_session, _create_code_session,
         # _check_sleeping). Logging it again here would duplicate it.
         prompt = session["pending_message"] or session["title"] or ""
-        branch_name = session["branch_name"] or f"factory/session-{session['id']}"
+        # The ref keeps this unique, so a branch left over from an earlier
+        # session can't block the checkout.
+        branch_name = session["branch_name"] or f"factory/session-{session['ref']}"
         env = {
             "REPO": session["repo"] or "",
             "GITHUB_TOKEN": self.settings.github_token,
@@ -269,7 +271,7 @@ class Scheduler:
             ),
         }
         try:
-            container_id = self.runner.start_turn(session["id"], env)
+            container_id = self.runner.start_turn(session["id"], store.workspace_of(session), env)
         except Exception:
             logger.exception("failed starting container for session %s", session["id"])
             store.update_session(session["id"], status="failed", attention="failed")
