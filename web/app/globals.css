@@ -481,6 +481,11 @@ a:hover { text-decoration: underline; }
 .mermaid-error { margin: 14px 0; }
 .mermaid-error-message { color: var(--danger); font-size: 12px; margin-bottom: 6px; }
 
+/* -- session model picker ------------------------------------------ */
+
+.model-select { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }
+.model-select select { min-width: 200px; }
+
 /* -- models ----------------------------------------------------------- */
 
 .models-page { display: flex; flex-direction: column; gap: 14px; max-width: 880px; }

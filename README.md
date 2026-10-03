@@ -184,8 +184,20 @@ enabled model). Code sessions write every enabled model into OpenCode's
 config, but each turn runs on the session's model; the agent can't switch
 models itself. Ask sessions call the chosen model directly.
 
-Choosing a model per task automatically is not built yet; a session's model
-is picked by you when it's created.
+**Routing.** A session on the default ("Auto") is routed turn by turn
+(`app/routing.py`). Before each turn, the lightest enabled model reads the
+task and says whether it needs light, standard or strong; the turn runs on an
+enabled model in that tier, and the session's model is updated and logged
+with the reason. A turn that failed moves the next one up a tier. Routing
+only changes the model when the tier changes, to avoid reloads. If the
+classifier can't answer, the turn keeps the current model.
+
+Picking a model yourself (on the New session page, or in a session's Model
+selector) pins the session to it, and routing leaves it alone. "Auto" hands
+it back. `FACTORY_ROUTING=0` turns routing off everywhere.
+
+The classifier runs on the host and is synchronous, so each routed turn waits
+for one short model call, up to 20 seconds.
 
 ## Setup
 

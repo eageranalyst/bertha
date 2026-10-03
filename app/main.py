@@ -182,6 +182,27 @@ def api_send_message(session_id: int, body: MessageIn):
     return store.get_session(session_id)
 
 
+class SessionModelIn(BaseModel):
+    # A registered model key pins the session to it. "auto" or null hands the
+    # session back to per-turn routing.
+    model: str | None = None
+
+
+@app.put("/api/sessions/{session_id}/model")
+def api_set_session_model(session_id: int, body: SessionModelIn):
+    _get_or_404(session_id)
+    if body.model in (None, "", "auto"):
+        store.update_session(session_id, model_pinned=0)
+        store.append_log(session_id, "system", "Model set to automatic routing")
+    else:
+        chosen = store.get_model(body.model)
+        if not chosen or not chosen["enabled"]:
+            raise HTTPException(400, f"model {body.model} is not an enabled model")
+        store.update_session(session_id, model=chosen["key"], model_pinned=1)
+        store.append_log(session_id, "system", f"Model pinned to {chosen['key']}")
+    return store.get_session(session_id)
+
+
 @app.post("/api/sessions/{session_id}/stop")
 def api_stop_session(session_id: int):
     session = _get_or_404(session_id)
@@ -265,6 +286,8 @@ def api_new_session(body: NewSessionIn):
         title=_derive_title(body.prompt),
         pending_message=body.prompt,
         model=model_key,
+        # A model the user picked stays on this session; the default is routed per turn.
+        model_pinned=bool(body.model),
     )
     store.append_log(session_id, "system", f"Started a new {body.session_type} session")
     if body.prompt:

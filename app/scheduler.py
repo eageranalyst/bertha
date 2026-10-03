@@ -45,6 +45,7 @@ import httpx
 
 from . import models as model_registry
 from . import store
+from .routing import route as route_turn
 from .config import Settings
 from .docker_runner import DockerRunner
 from .github_client import GitHubClient
@@ -84,16 +85,39 @@ class Scheduler:
         self._discover_new_issues()
         self._check_sleeping()
 
+    def _routed(self, session: dict[str, Any], prompt: str, session_type: str) -> dict[str, Any]:
+        """The session as this turn should see it: routed to the model that
+        fits the task, unless the user pinned one. A changed model is stored
+        on the session and logged with the reason.
+        """
+        task = {"session_type": session_type, "has_repo": bool(session["repo"]), "prompt": prompt}
+        chosen, reason = route_turn(self.settings, session, task)
+        if chosen is None or chosen["key"] == session["model"]:
+            return session
+        store.update_session(session["id"], model=chosen["key"])
+        store.append_log(
+            session["id"], "system",
+            f"Routed to {chosen['key']} ({chosen['tier']}): {reason or 'the default'}",
+        )
+        return {**session, "model": chosen["key"]}
+
     def _settle(self, session_id: int, status: str, attention: str | None, **fields: Any) -> None:
         """Ends a turn. `attention` says what the session is waiting on
         ("replied", "review" or "failed"), or None. Nothing is flagged when
         the user already sent a message while the turn ran, since that
-        message is the next thing to act on.
+        message is the next thing to act on. A failed turn is remembered, so
+        the next one is routed up a tier.
         """
         current = store.get_session(session_id)
         if current and current["pending_message"]:
             attention = None
-        store.update_session(session_id, status=status, attention=attention, **fields)
+        store.update_session(
+            session_id,
+            status=status,
+            attention=attention,
+            last_turn_failed=1 if status == "failed" else 0,
+            **fields,
+        )
 
     # -- stop (called from an API handler, not the tick loop) -----------
 
@@ -172,6 +196,7 @@ class Scheduler:
         # Not logged here -- whoever set pending_message (api_send_message,
         # api_new_session, etc.) already logged it at that point. Logging
         # it again here would duplicate it.
+        session = self._routed(session, session.get("pending_message") or "", "ask")
         messages = self._build_ask_messages(session["id"])
         store.update_session(
             session["id"],
@@ -242,6 +267,7 @@ class Scheduler:
         # (api_send_message, api_new_session, _create_code_session,
         # _check_sleeping). Logging it again here would duplicate it.
         prompt = session["pending_message"] or session["title"] or ""
+        session = self._routed(session, prompt, "code")
         # The ref keeps this unique, so a branch left over from an earlier
         # session can't block the checkout.
         branch_name = session["branch_name"] or f"factory/session-{session['ref']}"

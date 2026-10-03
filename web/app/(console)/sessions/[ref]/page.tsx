@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { SessionDetail } from "@/components/SessionDetail";
 import { ApiError, api } from "@/lib/api";
-import type { LogEntry, Session } from "@/lib/types";
+import type { LogEntry, Model, Session } from "@/lib/types";
 
 export default function SessionPage() {
   const { ref } = useParams<{ ref: string }>();
@@ -13,6 +13,11 @@ export default function SessionPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [missing, setMissing] = useState(false);
+  const [models, setModels] = useState<Model[]>([]);
+
+  useEffect(() => {
+    api.listModels().then(setModels).catch(() => {});
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -59,6 +64,8 @@ export default function SessionPage() {
     <SessionDetail
       session={session}
       logs={logs}
+      models={models}
+      onModelChange={(model) => run(() => api.setSessionModel(sessionId, model))}
       onMessage={(text) => run(() => api.sendMessage(sessionId, text))}
       onStop={() => run(() => api.stopSession(sessionId))}
       onClose={() => run(() => api.closeSession(sessionId))}

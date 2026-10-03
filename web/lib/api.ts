@@ -115,6 +115,12 @@ export const api = {
       body: JSON.stringify({ text }),
     }),
 
+  /** Pins the session to a model, or hands it back to routing when `model` is null. */
+  setSessionModel: (id: number, model: string | null) =>
+    request<Session>(`/api/sessions/${id}/model`, {
+      method: "PUT",
+      body: JSON.stringify({ model }),
+    }),
   stopSession: (id: number) => request<Session>(`/api/sessions/${id}/stop`, { method: "POST" }),
   closeSession: (id: number) => request<Session>(`/api/sessions/${id}/close`, { method: "POST" }),
   archiveSession: (id: number) => request<Session>(`/api/sessions/${id}/archive`, { method: "POST" }),

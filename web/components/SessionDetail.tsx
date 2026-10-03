@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { LogEntry, Session } from "@/lib/types";
+import type { LogEntry, Model, Session } from "@/lib/types";
 import { Markdown } from "./Markdown";
 import { AgentOutputLog } from "./AgentOutputLog";
 import { MessageRow, MessageBubble, SystemDivider, type Role } from "./ChatPrimitives";
@@ -24,20 +24,34 @@ function speakerFor(kind: string, content: string): { role: Role; label: string 
 export function SessionDetail({
   session,
   logs,
+  models,
   onMessage,
   onStop,
   onClose,
   onArchive,
   onReopen,
+  onModelChange,
 }: {
   session: Session;
   logs: LogEntry[];
+  models: Model[];
   onMessage: (text: string) => Promise<void>;
   onStop: () => Promise<void>;
   onClose: () => Promise<void>;
   onArchive: () => Promise<void>;
   onReopen: () => Promise<void>;
+  /** null hands the session back to per-turn routing. */
+  onModelChange: (model: string | null) => Promise<void>;
 }) {
+  const pinned = session.model_pinned === 1;
+  const enabledModels = models.filter((m) => m.enabled);
+  // A pinned model that has since been disabled still shows, so the select stays honest.
+  const modelOptions = [
+    ...enabledModels,
+    ...(pinned && session.model && !enabledModels.some((m) => m.key === session.model)
+      ? [{ key: session.model, tier: "standard" as const }]
+      : []),
+  ];
   const [text, setText] = useState("");
   // Reopen only applies to a session that's been closed or archived.
   const isClosed = session.status === "closed" || session.status === "archived";
@@ -69,13 +83,27 @@ export function SessionDetail({
           <span className={`status status-${session.status}`}>{session.status}</span>
           {session.repo ? ` · ${session.repo}` : " · no repo"}
           {session.pr_number != null ? ` · PR #${session.pr_number}` : ""}
-          {` · ${session.model ?? "default model"}`}
+          {` · ${pinned ? `${session.model} (pinned)` : `auto: ${session.model ?? "default"}`}`}
           {` · ${session.turn_count} turn${session.turn_count === 1 ? "" : "s"}`}
           {` · ${fmtTime(session.last_activity_at)}`}
         </div>
       </div>
 
       <div id="detail-actions">
+        <label className="model-select">
+          <span>Model</span>
+          <select
+            value={pinned && session.model ? session.model : "auto"}
+            onChange={(e) => onModelChange(e.target.value === "auto" ? null : e.target.value)}
+          >
+            <option value="auto">Auto (routed per turn)</option>
+            {modelOptions.map((m) => (
+              <option key={m.key} value={m.key}>
+                {m.key} ({m.tier})
+              </option>
+            ))}
+          </select>
+        </label>
         {session.status === "running" && (
           <button className="btn-danger" onClick={onStop}>
             Stop

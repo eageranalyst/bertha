@@ -145,6 +145,11 @@ def _add_missing_session_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE sessions ADD COLUMN workspace TEXT")
     if "model" not in cols:
         conn.execute("ALTER TABLE sessions ADD COLUMN model TEXT")
+    if "model_pinned" not in cols:
+        # 1 when the user chose the model; routing leaves a pinned session alone.
+        conn.execute("ALTER TABLE sessions ADD COLUMN model_pinned INTEGER NOT NULL DEFAULT 0")
+    if "last_turn_failed" not in cols:
+        conn.execute("ALTER TABLE sessions ADD COLUMN last_turn_failed INTEGER NOT NULL DEFAULT 0")
     page_cols = {row[1] for row in conn.execute("PRAGMA table_info(wiki_pages)").fetchall()}
     if "commit_sha" not in page_cols:
         conn.execute("ALTER TABLE wiki_pages ADD COLUMN commit_sha TEXT")
@@ -235,6 +240,7 @@ def create_session(
     branch_name: str | None = None,
     pending_message: str | None = None,
     model: str | None = None,
+    model_pinned: bool = False,
 ) -> int:
     now = time.time()
     # Nothing to run yet without an opening message -- sit idle (e.g. a
@@ -252,11 +258,13 @@ def create_session(
             """
             INSERT INTO sessions
                 (ref, session_type, repo, issue_number, title, branch_name,
-                 pending_message, status, workspace, model, last_activity_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 pending_message, status, workspace, model, model_pinned,
+                 last_activity_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (ref, session_type, repo, issue_number, title, branch_name,
-             pending_message, status, f"factory-ws-{ref}", model, now, now, now),
+             pending_message, status, f"factory-ws-{ref}", model, 1 if model_pinned else 0,
+             now, now, now),
         )
         return cur.lastrowid
 
@@ -307,6 +315,9 @@ _ALLOWED_FIELDS = {
     "pending_message",
     "harness_session_id",
     "attention",
+    "model",
+    "model_pinned",
+    "last_turn_failed",
 }
 
 

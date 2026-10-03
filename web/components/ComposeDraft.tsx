@@ -57,7 +57,7 @@ export function ComposeDraft({
       <div className="compose-row">
         <label htmlFor="compose-model">Model</label>
         <select id="compose-model" value={model} onChange={(e) => setModel(e.target.value)}>
-          <option value="">Default</option>
+          <option value="">Auto (routed per turn)</option>
           {enabled.map((m) => (
             <option key={m.key} value={m.key}>
               {m.key} ({m.tier})

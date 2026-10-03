@@ -31,6 +31,10 @@ export interface Session {
   attention: AttentionReason | null;
   /** The registered model key the session runs on. */
   model: string | null;
+  /** 1 when the user chose the model; 0 when routing picks it per turn. */
+  model_pinned: number;
+  /** 1 when the last turn failed, so the next one is routed up a tier. */
+  last_turn_failed: number;
   created_at: number;
   updated_at: number;
 }

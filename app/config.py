@@ -29,6 +29,8 @@ class Settings:
     wiki_image_tag: str
     # Registered model key to use when a session doesn't pick one.
     default_model_key: str
+    # Per-turn model routing (app/routing.py). Off makes every session use its own model.
+    routing_enabled: bool
     host: str
     port: int
     bot_name: str
@@ -74,6 +76,7 @@ def get_settings() -> Settings:
         agent_image_tag=os.environ.get("FACTORY_AGENT_IMAGE_TAG", "factory-agent:latest"),
         wiki_image_tag=os.environ.get("FACTORY_WIKI_IMAGE_TAG", "factory-wiki:latest"),
         default_model_key=os.environ.get("FACTORY_DEFAULT_MODEL", ""),
+        routing_enabled=os.environ.get("FACTORY_ROUTING", "1").lower() not in ("0", "false", "off"),
         host=os.environ.get("FACTORY_HOST", "127.0.0.1"),
         port=int(os.environ.get("FACTORY_PORT", "8787")),
         bot_name=os.environ.get("FACTORY_BOT_NAME", "factory-agent"),
