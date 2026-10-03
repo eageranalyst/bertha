@@ -93,7 +93,12 @@ app = FastAPI(title="Agent Factory", lifespan=lifespan)
 # served from here -- it needs CORS to call this API cross-origin.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    # 3001 too: when another web dev server already holds 3000, Next
+    # moves the UI to 3001 and the API would otherwise reject its preflights.
+    allow_origins=[
+        "http://localhost:3000", "http://127.0.0.1:3000",
+        "http://localhost:3001", "http://127.0.0.1:3001",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
