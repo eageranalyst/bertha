@@ -185,8 +185,11 @@ def api_archive_session(session_id: int):
 
 @app.post("/api/sessions/{session_id}/reopen")
 def api_reopen_session(session_id: int):
-    _get_or_404(session_id)
-    store.update_session(session_id, status="queued")
+    session = _get_or_404(session_id)
+    # Only queue a turn if there's actually something to send; otherwise
+    # it just goes back to waiting, like a freshly created session.
+    status = "queued" if session["pending_message"] else "idle"
+    store.update_session(session_id, status=status)
     store.append_log(session_id, "system", "Reopened from UI")
     return store.get_session(session_id)
 

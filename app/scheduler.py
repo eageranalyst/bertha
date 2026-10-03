@@ -160,6 +160,11 @@ class Scheduler:
         # api_new_session, etc.) already logged it at that point. Logging
         # it again here would duplicate it.
         messages = self._build_ask_messages(session["id"])
+        if not messages:
+            # Nothing to answer -- the model server rejects an empty
+            # message list, so don't call it.
+            store.update_session(session["id"], status="idle", pending_message=None)
+            return
         store.update_session(
             session["id"],
             status="running",
