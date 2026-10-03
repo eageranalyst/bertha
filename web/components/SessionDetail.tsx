@@ -39,6 +39,8 @@ export function SessionDetail({
   onReopen: () => Promise<void>;
 }) {
   const [text, setText] = useState("");
+  // Reopen only applies to a session that's been closed or archived.
+  const isClosed = session.status === "closed" || session.status === "archived";
   const logsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -78,15 +80,21 @@ export function SessionDetail({
             Stop
           </button>
         )}
-        <button className="btn-ghost" onClick={onClose}>
-          Close
-        </button>
-        <button className="btn-ghost" onClick={onArchive}>
-          Archive
-        </button>
-        <button className="btn-ghost" onClick={onReopen}>
-          Reopen
-        </button>
+        {!isClosed && (
+          <button className="btn-ghost" onClick={onClose}>
+            Close
+          </button>
+        )}
+        {session.status !== "archived" && (
+          <button className="btn-ghost" onClick={onArchive}>
+            Archive
+          </button>
+        )}
+        {isClosed && (
+          <button className="btn-ghost" onClick={onReopen}>
+            Reopen
+          </button>
+        )}
       </div>
 
       <div id="detail-logs" ref={logsRef}>
