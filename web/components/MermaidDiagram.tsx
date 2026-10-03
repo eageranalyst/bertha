@@ -22,19 +22,26 @@ export function MermaidDiagram({ chart }: { chart: string }) {
       try {
         const mermaid = (await import("mermaid")).default;
         mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
+        // Parse first: a failed render makes mermaid print its own error box into
+        // the page, which a later successful attempt wouldn't remove.
         const attempts = [...new Set([chart, repairMermaid(chart)])];
-        for (const [attempt, source] of attempts.entries()) {
+        let source: string | null = null;
+        for (const candidate of attempts) {
           try {
-            // A fresh element id per attempt: a failed render can leave one behind.
-            const rendered = await mermaid.render(`${id}-${attempt}`, source);
-            if (!cancelled) {
-              setSvg(rendered.svg);
-              setError(null);
-            }
-            return;
+            await mermaid.parse(candidate);
+            source = candidate;
+            break;
           } catch (err) {
             lastError = err;
           }
+        }
+        if (source !== null) {
+          const rendered = await mermaid.render(id, source);
+          if (!cancelled) {
+            setSvg(rendered.svg);
+            setError(null);
+          }
+          return;
         }
       } catch (err) {
         lastError = err;
