@@ -149,12 +149,23 @@ def api_stop_session(session_id: int):
     return store.get_session(session_id)
 
 
+def _teardown_volume(session_id: int, scheduler: Scheduler) -> None:
+    """Deletes the session's docker volume -- its git clone and
+    OpenCode's own conversation state. harness_session_id is cleared
+    alongside it so a later Reopen starts a fresh OpenCode session
+    instead of trying to -resume one whose backing data is gone.
+    """
+    scheduler.runner.remove_volume(session_id)
+    store.update_session(session_id, harness_session_id=None)
+
+
 @app.post("/api/sessions/{session_id}/close")
 def api_close_session(session_id: int):
     session = _get_or_404(session_id)
     scheduler: Scheduler = _state["scheduler"]  # type: ignore[assignment]
     if session["status"] == "running":
         scheduler.stop_turn(session)
+    _teardown_volume(session_id, scheduler)
     store.update_session(session_id, status="closed", container_id=None, pending_message=None)
     store.append_log(session_id, "system", "Closed from UI")
     return store.get_session(session_id)
@@ -162,8 +173,12 @@ def api_close_session(session_id: int):
 
 @app.post("/api/sessions/{session_id}/archive")
 def api_archive_session(session_id: int):
-    _get_or_404(session_id)
-    store.update_session(session_id, status="archived")
+    session = _get_or_404(session_id)
+    scheduler: Scheduler = _state["scheduler"]  # type: ignore[assignment]
+    if session["status"] == "running":
+        scheduler.stop_turn(session)
+    _teardown_volume(session_id, scheduler)
+    store.update_session(session_id, status="archived", container_id=None, pending_message=None)
     store.append_log(session_id, "system", "Archived from UI")
     return store.get_session(session_id)
 
