@@ -194,6 +194,8 @@ def api_new_session(body: NewSessionIn):
         pending_message=body.prompt,
     )
     store.append_log(session_id, "system", f"Started a new {body.session_type} session")
+    if body.prompt:
+        store.append_log(session_id, "user_message", body.prompt)
     return store.get_session(session_id)
 
 

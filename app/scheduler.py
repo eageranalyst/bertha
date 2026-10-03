@@ -129,6 +129,7 @@ class Scheduler:
         store.append_log(
             session_id, "system", f"Picked up issue #{issue['number']}: {issue['title']}"
         )
+        store.append_log(session_id, "user_message", issue["body"] or issue["title"])
         logger.info("session %s created for %s#%s", session_id, repo, issue["number"])
         return session_id
 
@@ -155,15 +156,16 @@ class Scheduler:
     # -- ask turns: no container, answered directly in a worker thread --
 
     def _launch_ask_turn(self, session: dict[str, Any]) -> None:
-        prompt = session["pending_message"] or ""
-        messages = self._build_ask_messages(session["id"], prompt)
+        # Not logged here -- whoever set pending_message (api_send_message,
+        # api_new_session, etc.) already logged it at that point. Logging
+        # it again here would duplicate it.
+        messages = self._build_ask_messages(session["id"])
         store.update_session(
             session["id"],
             status="running",
             pending_message=None,
             turn_count=session["turn_count"] + 1,
         )
-        store.append_log(session["id"], "user_message", prompt)
         client = httpx.Client(timeout=180.0)
         with self._lock:
             self._ask_clients[session["id"]] = client
@@ -174,14 +176,17 @@ class Scheduler:
         )
         thread.start()
 
-    def _build_ask_messages(self, session_id: int, prompt: str) -> list[dict[str, str]]:
+    def _build_ask_messages(self, session_id: int) -> list[dict[str, str]]:
+        # The current prompt is already the latest "user_message" log
+        # entry (logged by whoever set pending_message) by the time this
+        # runs, so the whole conversation -- including it -- just comes
+        # from the log. Appending it again here would send it twice.
         messages = []
         for log in store.list_logs(session_id):
             if log["kind"] == "user_message":
                 messages.append({"role": "user", "content": log["content"]})
             elif log["kind"] == "ask_response":
                 messages.append({"role": "assistant", "content": log["content"]})
-        messages.append({"role": "user", "content": prompt})
         return messages
 
     def _run_ask_request(
@@ -218,8 +223,10 @@ class Scheduler:
     # -- code turns: a container against a persistent per-session volume -
 
     def _launch_code_turn(self, session: dict[str, Any]) -> None:
+        # Not logged here -- whoever set pending_message already logged it
+        # (api_send_message, api_new_session, _create_code_session,
+        # _check_sleeping). Logging it again here would duplicate it.
         prompt = session["pending_message"] or session["title"] or ""
-        is_resume = bool(session["harness_session_id"])
         branch_name = session["branch_name"] or f"factory/session-{session['id']}"
         env = {
             "REPO": session["repo"] or "",
@@ -260,7 +267,6 @@ class Scheduler:
             branch_name=branch_name,
             turn_count=session["turn_count"] + 1,
         )
-        store.append_log(session["id"], "user_message" if is_resume else "system", prompt)
 
     def _check_running(self) -> None:
         for session in store.list_sessions(status="running"):
