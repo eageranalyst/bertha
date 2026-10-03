@@ -15,6 +15,10 @@ import sys
 def summarize(path: str) -> dict[str, str]:
     last_reason = None
     tokens = 0
+    # Each step's input is the whole context so far, so summing it counts the
+    # same history again every step. What a step adds is the growth in input
+    # plus its own output, which is what this measures.
+    previous_input = 0
     rejected = ""
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
@@ -29,7 +33,10 @@ def summarize(path: str) -> dict[str, str]:
         part = event.get("part") or {}
         if event.get("type") == "step_finish":
             last_reason = part.get("reason")
-            tokens += int((part.get("tokens") or {}).get("total") or 0)
+            usage = part.get("tokens") or {}
+            step_input = int(usage.get("input") or 0)
+            tokens += max(0, step_input - previous_input) + int(usage.get("output") or 0)
+            previous_input = step_input
         elif event.get("type") == "tool_use":
             state = part.get("state") or {}
             if state.get("status") == "error":

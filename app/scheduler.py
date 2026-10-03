@@ -63,6 +63,9 @@ class Scheduler:
         self.runner = runner
         self.gh = gh
         self._ask_clients: dict[int, httpx.Client] = {}
+        # Per code session, the log entry its running turn is writing into and
+        # how much of the container's output has been copied there.
+        self._streamed: dict[int, tuple[int, int]] = {}
         self._lock = threading.Lock()
 
     def tick_fast(self) -> None:
@@ -136,6 +139,7 @@ class Scheduler:
             return client is not None
         if session["container_id"]:
             self.runner.remove(session["container_id"])
+        self._streamed.pop(session["id"], None)
         store.update_session(session["id"], status="stopped", container_id=None, pending_message=None)
         store.append_log(session["id"], "system", "Stopped from UI")
         return True
@@ -324,6 +328,7 @@ class Scheduler:
             store.update_session(session["id"], status="failed", attention="failed")
             store.append_log(session["id"], "system", "Failed to start container")
             return
+        self._streamed.pop(session["id"], None)
         store.update_session(
             session["id"],
             status="running",
@@ -343,12 +348,47 @@ class Scheduler:
                 logger.exception("lost track of container for session %s", session["id"])
                 continue
             if container.status != "exited":
+                self._stream_output(session)
                 continue
             self._finish_code_turn(session, container)
 
+    def _stream_output(self, session: dict[str, Any]) -> None:
+        """Copies the container's output into the session log as it's
+        produced, so the transcript moves while the agent works. Only whole
+        lines are copied, because the output is JSON events one per line.
+        """
+        try:
+            logs = self.runner.logs(session["container_id"])
+        except Exception:
+            return  # the next tick tries again
+        sent = self._streamed.get(session["id"])
+        if sent is None:
+            log_id, offset = None, 0
+        else:
+            log_id, offset = sent
+        new = logs[offset:]
+        cut = new.rfind("\n")
+        if cut < 0:
+            return
+        chunk = new[: cut + 1]
+        if log_id is None:
+            log_id = store.append_log(session["id"], "agent_output", chunk)
+        else:
+            store.extend_log(log_id, chunk)
+        self._streamed[session["id"]] = (log_id, offset + len(chunk))
+
     def _finish_code_turn(self, session: dict[str, Any], container: Any) -> None:
         logs = self.runner.logs(session["container_id"])
-        store.append_log(session["id"], "agent_output", logs)
+        # Whatever the stream hasn't copied yet, which is the last partial line
+        # and anything after the final tick. Without a stream, all of it.
+        sent = self._streamed.pop(session["id"], None)
+        if sent is None:
+            store.append_log(session["id"], "agent_output", logs)
+        else:
+            log_id, offset = sent
+            rest = logs[offset:]
+            if rest:
+                store.extend_log(log_id, rest)
         exit_code = container.attrs.get("State", {}).get("ExitCode", 1)
         self.runner.remove(session["container_id"])
 

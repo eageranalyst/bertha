@@ -351,11 +351,23 @@ def clear_pending_message(session_id: int) -> None:
     update_session(session_id, pending_message=None)
 
 
-def append_log(session_id: int, kind: str, content: str) -> None:
+def append_log(session_id: int, kind: str, content: str) -> int:
     with _connect() as conn:
-        conn.execute(
+        cur = conn.execute(
             "INSERT INTO session_logs (session_id, kind, content, created_at) VALUES (?, ?, ?, ?)",
             (session_id, kind, content, time.time()),
+        )
+        return cur.lastrowid
+
+
+def extend_log(log_id: int, content: str) -> None:
+    """Adds text to the end of an existing log entry, so a turn's output
+    grows in one place while it runs.
+    """
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE session_logs SET content = content || ? WHERE id = ?",
+            (content, log_id),
         )
 
 

@@ -79,6 +79,7 @@ cat > "$HOME/.config/opencode/opencode.jsonc" <<EOF
   },
   "skills": { "paths": ["${HOME}/skills"] },
   "agent": { "build": { "steps": ${AGENT_STEPS:-25} } },
+  "tool_output": { "max_lines": 200, "max_bytes": 8192 },
   "permission": {
     "edit": "allow",
     "webfetch": "deny",
