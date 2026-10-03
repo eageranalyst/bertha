@@ -19,7 +19,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="brand">
           <span className="brand-mark">⚙</span>
           <div>
-            <h1>Agent Factory</h1>
+            <h1>Bertha</h1>
             <p className="subtitle">Local sessions, local model</p>
           </div>
         </div>
