@@ -22,6 +22,7 @@ class Settings:
     local_model_key: str
     local_model_id: str
     poll_interval_seconds: int
+    fast_poll_interval_seconds: int
     sleep_after_minutes: int
     db_path: str
     agent_image_tag: str
@@ -64,6 +65,7 @@ def get_settings() -> Settings:
         local_model_key=os.environ.get("FACTORY_LOCAL_MODEL_KEY", "qwen3.8-27b"),
         local_model_id=os.environ.get("FACTORY_LOCAL_MODEL_ID", "qwen/qwen3.8-27b"),
         poll_interval_seconds=int(os.environ.get("FACTORY_POLL_INTERVAL_SECONDS", "60")),
+        fast_poll_interval_seconds=int(os.environ.get("FACTORY_FAST_POLL_INTERVAL_SECONDS", "3")),
         sleep_after_minutes=int(os.environ.get("FACTORY_SLEEP_AFTER_MINUTES", "30")),
         db_path=os.environ.get("FACTORY_DB_PATH", "data/factory.db"),
         agent_image_tag=os.environ.get("FACTORY_AGENT_IMAGE_TAG", "factory-agent:latest"),

@@ -1,15 +1,17 @@
 """FastAPI app: the REST API. The UI lives in web/ (Next.js) as its
 own process, talking to this over HTTP -- see web/lib/api.ts.
 
-The scheduler runs on its own background thread (everything it does --
-sqlite, docker-py, PyGithub -- is blocking I/O), ticking on a plain
-timer. API handlers are defined as plain `def`s so FastAPI dispatches
-them to its threadpool instead of the asyncio loop, which keeps this
-simple: nothing here needs to be async.
+The scheduler runs on two background threads (everything it does --
+sqlite, docker-py, PyGithub -- is blocking I/O): a fast one for local
+session progress and a slow one for GitHub polling, see TickThread and
+lifespan() below. API handlers are defined as plain `def`s so FastAPI
+dispatches them to its threadpool instead of the asyncio loop, which
+keeps this simple: nothing here needs to be async.
 """
 
 import logging
 import threading
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -32,19 +34,24 @@ AGENT_IMAGE_DIR = BASE_DIR / "agent_image"
 _state: dict[str, object] = {}
 
 
-class SchedulerThread(threading.Thread):
-    def __init__(self, scheduler: Scheduler, interval_seconds: int):
-        super().__init__(daemon=True, name="factory-scheduler")
-        self.scheduler = scheduler
+class TickThread(threading.Thread):
+    """Runs one tick function on its own interval. There are two of
+    these -- see lifespan() -- so local session progress (fast) isn't
+    held hostage by the GitHub-polling cadence (slow).
+    """
+
+    def __init__(self, name: str, tick_fn: Callable[[], None], interval_seconds: int):
+        super().__init__(daemon=True, name=f"factory-{name}")
+        self.tick_fn = tick_fn
         self.interval_seconds = interval_seconds
         self._stop = threading.Event()
 
     def run(self) -> None:
         while not self._stop.is_set():
             try:
-                self.scheduler.tick()
+                self.tick_fn()
             except Exception:
-                logger.exception("scheduler tick failed")
+                logger.exception("%s tick failed", self.name)
             self._stop.wait(self.interval_seconds)
 
     def stop(self) -> None:
@@ -61,16 +68,19 @@ async def lifespan(app: FastAPI):
     runner.ensure_image(AGENT_IMAGE_DIR)
     gh = GitHubClient(settings.github_token, settings.github_bot_username)
     scheduler = Scheduler(settings, runner, gh)
-    thread = SchedulerThread(scheduler, settings.poll_interval_seconds)
-    thread.start()
+    fast_thread = TickThread("fast", scheduler.tick_fast, settings.fast_poll_interval_seconds)
+    slow_thread = TickThread("slow", scheduler.tick_slow, settings.poll_interval_seconds)
+    fast_thread.start()
+    slow_thread.start()
     _state["scheduler"] = scheduler
-    _state["thread"] = thread
+    _state["threads"] = [fast_thread, slow_thread]
     logger.info(
-        "Agent Factory started, watching %s every %ss",
-        settings.repos, settings.poll_interval_seconds,
+        "Agent Factory started, watching %s every %ss (session progress every %ss)",
+        settings.repos, settings.poll_interval_seconds, settings.fast_poll_interval_seconds,
     )
     yield
-    thread.stop()
+    fast_thread.stop()
+    slow_thread.stop()
 
 
 app = FastAPI(title="Agent Factory", lifespan=lifespan)

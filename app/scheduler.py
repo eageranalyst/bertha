@@ -61,12 +61,25 @@ class Scheduler:
         self._ask_clients: dict[int, httpx.Client] = {}
         self._lock = threading.Lock()
 
-    def tick(self) -> None:
-        self._discover_new_issues()
+    def tick_fast(self) -> None:
+        """Everything local -- no GitHub calls, no external rate limit,
+        so this runs on a short interval. A freshly created session
+        (or one a user just messaged) launches on the next tick of
+        *this* loop, not the slow one -- otherwise session creation
+        would feel broken, waiting up to a full poll_interval_seconds
+        before anything visibly happens.
+        """
         self._promote_pending_messages()
         self._start_queued()
         self._check_running()
         self._check_pr_open_idle()
+
+    def tick_slow(self) -> None:
+        """Everything that calls the GitHub API: issue discovery and
+        polling sleeping sessions' PRs for new comments. Runs on
+        `poll_interval_seconds`, same as before this split.
+        """
+        self._discover_new_issues()
         self._check_sleeping()
 
     # -- stop (called from an API handler, not the tick loop) -----------
