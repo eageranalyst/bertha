@@ -56,6 +56,7 @@ export function SkillForm({
         <button type="button" className="btn-primary" disabled={busy || !content.trim()} onClick={submit}>
           {submitLabel}
         </button>
+        {!content.trim() && <span className="skill-form-hint">Paste or choose a SKILL.md to save.</span>}
       </div>
       {error && <div className="wiki-error">{error}</div>}
     </div>

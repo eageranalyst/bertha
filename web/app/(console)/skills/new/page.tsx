@@ -20,7 +20,7 @@ export default function InstallSkillPage() {
         <code>description</code>. Installing a skill whose name already exists updates it: the version
         goes up, and its metadata and repo links stay.
       </p>
-      <SkillForm submitLabel="Install" onSubmit={install} />
+      <SkillForm submitLabel="Save skill" onSubmit={install} />
     </div>
   );
 }
