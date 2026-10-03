@@ -55,9 +55,9 @@ export default function ModelsPage() {
         <div>
           <h2 className="wiki-title">Models</h2>
           <p className="skill-hint">
-            Local models the model server reports. A session runs on the model it was created with;
-            code sessions can also switch between the enabled ones. The tier says what a model is
-            for, and the description says what it&apos;s good at. Both are yours to set.
+            Local models the model server reports. A session runs on the model it was created with,
+            and only enabled models can be chosen. The tier says what a model is for, and the
+            description says what it&apos;s good at. Both are yours to set.
           </p>
         </div>
         <button type="button" className="btn-primary" disabled={busy} onClick={refresh}>

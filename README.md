@@ -181,11 +181,11 @@ or disable a model. Refresh after loading or removing models in the server.
 A session is created on a model: pick one on the New session page, or it
 gets the default (`FACTORY_DEFAULT_MODEL` if set, otherwise the strongest
 enabled model). Code sessions write every enabled model into OpenCode's
-config, so the agent knows what's available. Ask sessions call the chosen
-model directly.
+config, but each turn runs on the session's model; the agent can't switch
+models itself. Ask sessions call the chosen model directly.
 
 Choosing a model per task automatically is not built yet; a session's model
-is picked by you.
+is picked by you when it's created.
 
 ## Setup
 
