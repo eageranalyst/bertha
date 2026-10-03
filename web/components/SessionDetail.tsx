@@ -44,6 +44,11 @@ export function SessionDetail({
   // even if they'd scrolled up to read earlier output.
   const forceScrollRef = useRef(false);
 
+  // Opening a session should land on its latest output, not the top.
+  useEffect(() => {
+    forceScrollRef.current = true;
+  }, [session.id]);
+
   useEffect(() => {
     const el = logsRef.current;
     if (!el) return;
