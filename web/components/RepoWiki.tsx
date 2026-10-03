@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import { fmtTime } from "@/lib/format";
 import type { WikiPage, WikiResponse } from "@/lib/types";
 import { Markdown } from "./Markdown";
@@ -14,9 +14,8 @@ function errorText(err: unknown) {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** api.ts throws "<status> <body>" for failed requests. */
 function isNotFound(err: unknown) {
-  return err instanceof Error && err.message.startsWith("404");
+  return err instanceof ApiError && err.status === 404;
 }
 
 export function RepoWiki({ repoId }: { repoId: number }) {

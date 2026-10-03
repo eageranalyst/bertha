@@ -10,13 +10,43 @@ import type {
 
 const API_ORIGIN = process.env.NEXT_PUBLIC_API_ORIGIN ?? "http://127.0.0.1:8787";
 
+/** A failed API call. `message` is human text only; the raw body stays out of it. */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/** The server's `detail` text when it sent one, otherwise a plain fallback. */
+async function errorMessage(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { detail?: unknown };
+    if (typeof body.detail === "string") return body.detail;
+    if (Array.isArray(body.detail)) {
+      return body.detail.map((d) => (d as { msg?: string }).msg ?? "invalid value").join("; ");
+    }
+  } catch {
+    // Not JSON (an HTML error page, say); fall through to the generic text.
+  }
+  return res.status === 404 ? "Not found" : `Request failed (${res.status})`;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_ORIGIN}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...init,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_ORIGIN}${path}`, {
+      headers: { "Content-Type": "application/json" },
+      ...init,
+    });
+  } catch {
+    throw new ApiError(0, `Can't reach the API at ${API_ORIGIN}`);
+  }
   if (!res.ok) {
-    throw new Error(`${res.status} ${await res.text()}`);
+    throw new ApiError(res.status, await errorMessage(res));
   }
   return res.json() as Promise<T>;
 }
