@@ -1,4 +1,5 @@
-"""FastAPI app: REST API + the local-only static UI.
+"""FastAPI app: the REST API. The UI lives in web/ (Next.js) as its
+own process, talking to this over HTTP -- see web/lib/api.ts.
 
 The scheduler runs on its own background thread (everything it does --
 sqlite, docker-py, PyGithub -- is blocking I/O), ticking on a plain
@@ -13,8 +14,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from . import store
@@ -27,7 +27,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("factory.main")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-STATIC_DIR = BASE_DIR / "static"
 AGENT_IMAGE_DIR = BASE_DIR / "agent_image"
 
 _state: dict[str, object] = {}
@@ -75,6 +74,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Agent Factory", lifespan=lifespan)
+
+# The UI is a separate Next.js dev/prod server on its own port, not
+# served from here -- it needs CORS to call this API cross-origin.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class MessageIn(BaseModel):
@@ -199,9 +207,3 @@ def api_delete_repo(repo_id: int):
     return store.list_repos()
 
 
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-
-@app.get("/")
-def index():
-    return FileResponse(STATIC_DIR / "index.html")

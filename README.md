@@ -3,9 +3,9 @@
 A lightweight local service that picks up GitHub issues assigned to a
 bot account, does the work in an ephemeral Docker container, opens a
 PR, then goes idle. While idle it polls the PR for new comments and
-wakes itself back up to act on them. A local web UI lists every
-session and lets you message, stop, close, archive, or start one by
-hand.
+wakes itself back up to act on them. A local web UI (Next.js, its own
+process at `web/`) lists every session and lets you message, stop,
+close, archive, or start one by hand.
 
 **Creating a session is a two-step, nothing-saved-until-you-commit
 flow**: click "+ New session" and a draft appears on the left (purely
@@ -117,8 +117,13 @@ still worth doing on top of it, not done yet:
   `stopped`.
 - **State** lives in `data/factory.db` (sqlite) — sessions, a log of
   everything that happened to each one, and the repo registry.
-- **UI** (`static/`) is plain HTML/JS served by the same FastAPI app,
-  polling `/api/sessions` every few seconds. No build step.
+- **UI** (`web/`) is a separate Next.js/TypeScript app, its own process
+  on its own port, polling the FastAPI backend's `/api/sessions` every
+  few seconds over CORS (`app/main.py` allows `localhost:3000`). Model
+  responses and user messages render as Markdown with syntax
+  highlighting (`react-markdown` + `rehype-highlight`); raw container
+  logs (`agent_output`) render as plain preformatted text instead,
+  since that's an NDJSON dump, not prose.
 
 ## Setup
 
@@ -151,7 +156,16 @@ from `agent_image/`.
 uvicorn app.main:app --reload --port 8787
 ```
 
-Open `http://127.0.0.1:8787`.
+In a second terminal, the UI:
+
+```bash
+cd web
+npm install
+cp .env.local.example .env.local   # only needed if you changed FACTORY_HOST/PORT
+npm run dev
+```
+
+Open `http://localhost:3000`.
 
 ## Repo layout
 
@@ -162,10 +176,12 @@ app/
   github_client.py  polling: assigned issues, new PR comments
   docker_runner.py  per-turn ephemeral containers on a per-session volume
   scheduler.py      the state machine (ask + code, stop support)
-  main.py           FastAPI routes + static UI mount
+  main.py           FastAPI routes + CORS for the web/ origin
 agent_image/
   Dockerfile        node+python+git+gh+opencode base image
   entrypoint.sh      clone/resume, run opencode, push, gh pr create
-static/
-  index.html, app.js, style.css   local UI, no build step
+web/                Next.js/TypeScript UI, its own process (npm run dev)
+  app/              layout, globals.css, the one page
+  components/       SessionList, ComposeDraft, SessionDetail, Markdown
+  lib/               api.ts (typed fetch client), types.ts
 ```
