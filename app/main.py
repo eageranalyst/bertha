@@ -10,6 +10,7 @@ keeps this simple: nothing here needs to be async.
 """
 
 import logging
+import os
 import threading
 from collections.abc import Callable
 from contextlib import asynccontextmanager
@@ -23,7 +24,11 @@ from . import store
 from .config import get_settings
 from .docker_runner import DockerRunner
 from .github_client import GitHubClient
+from .preflight import run_preflight
 from .scheduler import Scheduler
+
+if os.environ.get("FACTORY_SKIP_PREFLIGHT") != "1":
+    run_preflight()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("factory.main")
