@@ -170,6 +170,23 @@ created, last built and last changed) and `wiki_pages` (one row per
 page). A build that's interrupted by an API restart is marked failed
 on the next start.
 
+## Models
+
+The model server can host several models. Bertha reads its model list
+(`/v1/models`, minus embedding models) into the **Models** tab. Each model
+gets a tier from its parameter count: up to 8B is `light`, up to 14B
+`standard`, larger is `strong`. You can change the tier, add a description,
+or disable a model. Refresh after loading or removing models in the server.
+
+A session is created on a model: pick one on the New session page, or it
+gets the default (`FACTORY_DEFAULT_MODEL` if set, otherwise the strongest
+enabled model). Code sessions write every enabled model into OpenCode's
+config, so the agent knows what's available. Ask sessions call the chosen
+model directly.
+
+Choosing a model per task automatically is not built yet; a session's model
+is picked by you.
+
 ## Setup
 
 ```bash

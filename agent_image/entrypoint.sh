@@ -57,17 +57,24 @@ for skill in json.load(sys.stdin):
     (folder / "SKILL.md").write_text(skill["content"])
 '
 
+# Every enabled model Bertha knows about, so the agent can use the right one
+# for the task. Falls back to the single model in LOCAL_MODEL_* when none
+# were sent.
+MODELS_BLOCK=$(printf '%s' "${MODELS_JSON:-[]}" | python3 -c '
+import json, os, sys
+models = json.load(sys.stdin) or [{"key": os.environ["LOCAL_MODEL_KEY"], "model_id": os.environ["LOCAL_MODEL_ID"]}]
+print(json.dumps({m["key"]: {"id": m["model_id"], "name": m["model_id"]} for m in models}))
+')
+
 cat > "$HOME/.config/opencode/opencode.jsonc" <<EOF
 {
   "\$schema": "https://opencode.ai/config.json",
   "provider": {
     "${LOCAL_MODEL_PROVIDER}": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Local model (factory)",
+      "name": "Local models (factory)",
       "options": { "baseURL": "${LOCAL_MODEL_BASE_URL}" },
-      "models": {
-        "${LOCAL_MODEL_KEY}": { "id": "${LOCAL_MODEL_ID}", "name": "${LOCAL_MODEL_ID}" }
-      }
+      "models": ${MODELS_BLOCK}
     }
   },
   "skills": { "paths": ["${HOME}/skills"] },

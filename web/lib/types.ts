@@ -29,6 +29,19 @@ export interface Session {
   pending_message: string | null;
   /** What the session is waiting on from you, or null. */
   attention: AttentionReason | null;
+  /** The registered model key the session runs on. */
+  model: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+/** A local model Bertha can run sessions on. */
+export interface Model {
+  key: string;
+  model_id: string;
+  tier: "light" | "standard" | "strong";
+  description: string;
+  enabled: boolean;
   created_at: number;
   updated_at: number;
 }

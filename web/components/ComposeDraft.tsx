@@ -1,24 +1,33 @@
 "use client";
 
 import { useState } from "react";
-import type { Repo, SessionType } from "@/lib/types";
+import type { Model, Repo, SessionType } from "@/lib/types";
 
 export function ComposeDraft({
   repos,
+  models,
   onSubmit,
 }: {
   repos: Repo[];
-  onSubmit: (sessionType: SessionType, repo: string | null, prompt: string | null) => Promise<void>;
+  models: Model[];
+  onSubmit: (
+    sessionType: SessionType,
+    repo: string | null,
+    prompt: string | null,
+    model: string | null,
+  ) => Promise<void>;
 }) {
   const [prompt, setPrompt] = useState("");
   const [repo, setRepo] = useState("");
+  const [model, setModel] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const enabled = models.filter((m) => m.enabled);
 
   async function submit(sessionType: SessionType) {
     if (submitting) return;
     setSubmitting(true);
     try {
-      await onSubmit(sessionType, repo || null, prompt.trim() || null);
+      await onSubmit(sessionType, repo || null, prompt.trim() || null, model || null);
     } finally {
       setSubmitting(false);
     }
@@ -41,6 +50,17 @@ export function ComposeDraft({
           {repos.map((r) => (
             <option key={r.id} value={r.full_name}>
               {r.full_name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="compose-row">
+        <label htmlFor="compose-model">Model</label>
+        <select id="compose-model" value={model} onChange={(e) => setModel(e.target.value)}>
+          <option value="">Default</option>
+          {enabled.map((m) => (
+            <option key={m.key} value={m.key}>
+              {m.key} ({m.tier})
             </option>
           ))}
         </select>

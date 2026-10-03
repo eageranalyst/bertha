@@ -43,6 +43,7 @@ from typing import Any
 
 import httpx
 
+from . import models as model_registry
 from . import store
 from .config import Settings
 from .docker_runner import DockerRunner
@@ -181,9 +182,11 @@ class Scheduler:
         client = httpx.Client(timeout=180.0)
         with self._lock:
             self._ask_clients[session["id"]] = client
+        chosen = model_registry.resolve(self.settings, session.get("model"))
+        model_id = chosen["model_id"] if chosen else self.settings.local_model_id
         thread = threading.Thread(
             target=self._run_ask_request,
-            args=(session["id"], client, messages),
+            args=(session["id"], client, messages, model_id),
             daemon=True,
         )
         thread.start()
@@ -202,13 +205,13 @@ class Scheduler:
         return messages
 
     def _run_ask_request(
-        self, session_id: int, client: httpx.Client, messages: list[dict[str, str]]
+        self, session_id: int, client: httpx.Client, messages: list[dict[str, str]], model_id: str
     ) -> None:
         try:
             resp = client.post(
                 f"{self.settings.local_model_host_base_url}/chat/completions",
                 json={
-                    "model": self.settings.local_model_id,
+                    "model": model_id,
                     "messages": messages,
                     "stream": False,
                 },
@@ -242,13 +245,23 @@ class Scheduler:
         # The ref keeps this unique, so a branch left over from an earlier
         # session can't block the checkout.
         branch_name = session["branch_name"] or f"factory/session-{session['ref']}"
+        chosen = model_registry.resolve(self.settings, session.get("model"))
+        opencode_model = (
+            f"{self.settings.local_model_provider}/{chosen['key']}"
+            if chosen else self.settings.opencode_model_ref
+        )
         env = {
             "REPO": session["repo"] or "",
             "GITHUB_TOKEN": self.settings.github_token,
             "BRANCH_NAME": branch_name,
             "PROMPT": prompt,
             "OPENCODE_SESSION_ID": session["harness_session_id"] or "",
-            "OPENCODE_MODEL": self.settings.opencode_model_ref,
+            "OPENCODE_MODEL": opencode_model,
+            # Every enabled model, so OpenCode knows the full set it can switch to.
+            "MODELS_JSON": json.dumps([
+                {"key": m["key"], "model_id": m["model_id"]}
+                for m in store.list_models() if m["enabled"]
+            ]),
             "LOCAL_MODEL_PROVIDER": self.settings.local_model_provider,
             "LOCAL_MODEL_BASE_URL": self.settings.local_model_base_url,
             "LOCAL_MODEL_KEY": self.settings.local_model_key,

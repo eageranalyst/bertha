@@ -1,5 +1,6 @@
 import type {
   LogEntry,
+  Model,
   RepoMetadata,
   RepoSkill,
   Repo,
@@ -92,7 +93,20 @@ export const api = {
       body: JSON.stringify({ force }),
     }),
 
-  createSession: (body: { session_type: SessionType; repo: string | null; prompt: string | null }) =>
+  listModels: () => request<Model[]>("/api/models"),
+  refreshModels: () => request<Model[]>("/api/models/refresh", { method: "POST" }),
+  updateModel: (key: string, patch: Partial<Pick<Model, "tier" | "description" | "enabled">>) =>
+    request<Model>(`/api/models/${encodeURIComponent(key)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  createSession: (body: {
+    session_type: SessionType;
+    repo: string | null;
+    prompt: string | null;
+    model: string | null;
+  }) =>
     request<Session>("/api/sessions", { method: "POST", body: JSON.stringify(body) }),
 
   sendMessage: (id: number, text: string) =>

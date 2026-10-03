@@ -481,6 +481,23 @@ a:hover { text-decoration: underline; }
 .mermaid-error { margin: 14px 0; }
 .mermaid-error-message { color: var(--danger); font-size: 12px; margin-bottom: 6px; }
 
+/* -- models ----------------------------------------------------------- */
+
+.models-page { display: flex; flex-direction: column; gap: 14px; max-width: 880px; }
+.models-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.models-list { display: flex; flex-direction: column; border: 1px solid var(--border-soft); border-radius: var(--radius); overflow: hidden; }
+.models-row { display: flex; gap: 14px; align-items: flex-start; padding: 12px 14px; border-bottom: 1px solid var(--border-soft); }
+.models-row:last-child { border-bottom: none; }
+.models-row.disabled { opacity: 0.55; }
+.models-enabled { padding-top: 3px; }
+.models-enabled input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+.models-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.models-top { display: flex; gap: 10px; align-items: baseline; }
+.models-key { font-weight: 600; font-size: 13px; }
+.models-description { width: 100%; }
+.models-tier { display: flex; flex-direction: column; gap: 4px; width: 200px; flex-shrink: 0; }
+.models-tier-hint { font-size: 11.5px; color: var(--text-faint); line-height: 1.4; }
+
 /* -- skills ----------------------------------------------------------- */
 
 a.skill-row { display: block; color: inherit; text-decoration: none; }

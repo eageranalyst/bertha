@@ -19,6 +19,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from . import models as model_registry
 from . import store
 from .config import get_settings
 from .skills import parse_skill
@@ -65,6 +66,11 @@ class TickThread(threading.Thread):
 async def lifespan(app: FastAPI):
     settings = get_settings()
     store.init_db(settings.db_path)
+    try:
+        model_registry.refresh(settings)
+    except Exception as exc:
+        # The model server may not be up yet; the registry keeps what it has.
+        logger.warning("could not discover models from the model server: %s", exc)
     store.fail_interrupted_wiki_indexes()
     for repo in settings.repos:
         store.create_repo(repo)
@@ -118,6 +124,8 @@ class NewSessionIn(BaseModel):
     session_type: str
     repo: str | None = None
     prompt: str | None = None
+    # A registered model key. Omitted, the session gets the default.
+    model: str | None = None
 
 
 class RepoIn(BaseModel):
@@ -242,11 +250,21 @@ def _derive_title(prompt: str | None) -> str:
 def api_new_session(body: NewSessionIn):
     if body.session_type not in ("ask", "code"):
         raise HTTPException(400, "session_type must be 'ask' or 'code'")
+    settings = get_settings()
+    if body.model:
+        chosen = store.get_model(body.model)
+        if not chosen or not chosen["enabled"]:
+            raise HTTPException(400, f"model {body.model} is not an enabled model")
+        model_key = chosen["key"]
+    else:
+        default = model_registry.default_model(settings)
+        model_key = default["key"] if default else None
     session_id = store.create_session(
         session_type=body.session_type,
         repo=body.repo,
         title=_derive_title(body.prompt),
         pending_message=body.prompt,
+        model=model_key,
     )
     store.append_log(session_id, "system", f"Started a new {body.session_type} session")
     if body.prompt:
@@ -402,5 +420,37 @@ def api_set_repo_skill(repo_id: int, skill_id: int, body: RepoSkillIn):
     _skill_or_404(skill_id)
     store.set_repo_skill(repo["full_name"], skill_id, body.enabled)
     return store.library_for_repo(repo["full_name"])
+
+
+# -- models -------------------------------------------------------------
+
+class ModelIn(BaseModel):
+    tier: str | None = None
+    description: str | None = None
+    enabled: bool | None = None
+
+
+@app.get("/api/models")
+def api_list_models():
+    return store.list_models()
+
+
+@app.post("/api/models/refresh")
+def api_refresh_models():
+    try:
+        return model_registry.refresh(get_settings())
+    except Exception as exc:
+        raise HTTPException(502, f"could not reach the model server: {exc}")
+
+
+@app.patch("/api/models/{key}")
+def api_update_model(key: str, body: ModelIn):
+    if not store.get_model(key):
+        raise HTTPException(404, "model not found")
+    if body.tier is not None and body.tier not in model_registry.TIERS:
+        raise HTTPException(400, f"tier must be one of {', '.join(model_registry.TIERS)}")
+    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    store.update_model(key, **fields)
+    return store.get_model(key)
 
 

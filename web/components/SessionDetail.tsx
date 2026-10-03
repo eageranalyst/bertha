@@ -69,6 +69,7 @@ export function SessionDetail({
           <span className={`status status-${session.status}`}>{session.status}</span>
           {session.repo ? ` · ${session.repo}` : " · no repo"}
           {session.pr_number != null ? ` · PR #${session.pr_number}` : ""}
+          {` · ${session.model ?? "default model"}`}
           {` · ${session.turn_count} turn${session.turn_count === 1 ? "" : "s"}`}
           {` · ${fmtTime(session.last_activity_at)}`}
         </div>

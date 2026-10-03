@@ -102,6 +102,18 @@ CREATE TABLE IF NOT EXISTS skill_metadata (
     PRIMARY KEY (skill_id, key)
 );
 
+-- Local models Bertha can run sessions on. Discovered from the model server;
+-- the tier and description are for choosing between them.
+CREATE TABLE IF NOT EXISTS models (
+    key TEXT PRIMARY KEY,
+    model_id TEXT NOT NULL,
+    tier TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
 -- A row here means the skill is enabled for the repo. Disabling deletes it.
 CREATE TABLE IF NOT EXISTS repo_skills (
     repo TEXT NOT NULL,
@@ -131,6 +143,8 @@ def _add_missing_session_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE sessions ADD COLUMN attention TEXT")
     if "workspace" not in cols:
         conn.execute("ALTER TABLE sessions ADD COLUMN workspace TEXT")
+    if "model" not in cols:
+        conn.execute("ALTER TABLE sessions ADD COLUMN model TEXT")
     page_cols = {row[1] for row in conn.execute("PRAGMA table_info(wiki_pages)").fetchall()}
     if "commit_sha" not in page_cols:
         conn.execute("ALTER TABLE wiki_pages ADD COLUMN commit_sha TEXT")
@@ -220,6 +234,7 @@ def create_session(
     title: str = "",
     branch_name: str | None = None,
     pending_message: str | None = None,
+    model: str | None = None,
 ) -> int:
     now = time.time()
     # Nothing to run yet without an opening message -- sit idle (e.g. a
@@ -237,11 +252,11 @@ def create_session(
             """
             INSERT INTO sessions
                 (ref, session_type, repo, issue_number, title, branch_name,
-                 pending_message, status, workspace, last_activity_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 pending_message, status, workspace, model, last_activity_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (ref, session_type, repo, issue_number, title, branch_name,
-             pending_message, status, f"factory-ws-{ref}", now, now, now),
+             pending_message, status, f"factory-ws-{ref}", model, now, now, now),
         )
         return cur.lastrowid
 
@@ -632,3 +647,48 @@ def set_repo_skill(repo: str, skill_id: int, enabled: bool) -> None:
             conn.execute(
                 "DELETE FROM repo_skills WHERE repo = ? AND skill_id = ?", (repo, skill_id)
             )
+
+
+# -- models -------------------------------------------------------------
+
+def list_models() -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM models ORDER BY key").fetchall()
+    models = [_row_to_dict(r) for r in rows]
+    for m in models:
+        m["enabled"] = bool(m["enabled"])
+    return models
+
+
+def get_model(key: str) -> dict[str, Any] | None:
+    return next((m for m in list_models() if m["key"] == key), None)
+
+
+def add_discovered_model(key: str, model_id: str, tier: str) -> None:
+    """Registers a model the server reports. A model already registered keeps
+    its tier, description and enabled flag, which the user may have changed.
+    """
+    now = time.time()
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO models (key, model_id, tier, description, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, '', 1, ?, ?)
+            """,
+            (key, model_id, tier, now, now),
+        )
+
+
+def update_model(key: str, **fields: Any) -> None:
+    allowed = {"tier", "description", "enabled"}
+    unknown = set(fields) - allowed
+    if unknown:
+        raise ValueError(f"unknown model fields: {unknown}")
+    if "enabled" in fields:
+        fields["enabled"] = 1 if fields["enabled"] else 0
+    assignments = ", ".join(f"{k} = ?" for k in [*fields, "updated_at"])
+    with _connect() as conn:
+        conn.execute(
+            f"UPDATE models SET {assignments} WHERE key = ?",
+            [*fields.values(), time.time(), key],
+        )
