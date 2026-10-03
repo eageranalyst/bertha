@@ -9,6 +9,7 @@ const TABS = [
   { href: "/repos", label: "Repos" },
   { href: "/skills", label: "Skills" },
   { href: "/models", label: "Models" },
+  { href: "/settings", label: "Settings" },
 ];
 
 /** The header with the section tabs. The active tab follows the URL. */

@@ -1,4 +1,5 @@
 import type {
+  AgentSetting,
   LogEntry,
   Model,
   RepoMetadata,
@@ -93,6 +94,9 @@ export const api = {
       body: JSON.stringify({ force }),
     }),
 
+  listSettings: () => request<AgentSetting[]>("/api/settings"),
+  updateSettings: (values: Record<string, number>) =>
+    request<AgentSetting[]>("/api/settings", { method: "PUT", body: JSON.stringify(values) }),
   listModels: () => request<Model[]>("/api/models"),
   refreshModels: () => request<Model[]>("/api/models/refresh", { method: "POST" }),
   updateModel: (key: string, patch: Partial<Pick<Model, "tier" | "description" | "enabled">>) =>

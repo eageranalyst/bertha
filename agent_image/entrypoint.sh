@@ -78,6 +78,7 @@ cat > "$HOME/.config/opencode/opencode.jsonc" <<EOF
     }
   },
   "skills": { "paths": ["${HOME}/skills"] },
+  "agent": { "build": { "steps": ${AGENT_STEPS:-25} } },
   "permission": {
     "edit": "allow",
     "webfetch": "deny",
@@ -203,23 +204,84 @@ Task:
 $PROMPT"
 fi
 
-echo "=== Running agent (opencode session ${OPENCODE_SESSION_ID:-<new>}, model $OPENCODE_MODEL) ==="
-set +e
-if [ -n "${OPENCODE_SESSION_ID:-}" ]; then
-    opencode run "$MESSAGE" -s "$OPENCODE_SESSION_ID" -m "$OPENCODE_MODEL" \
-        --format json > /data/last_result.ndjson
-else
-    opencode run "$MESSAGE" -m "$OPENCODE_MODEL" \
-        --format json > /data/last_result.ndjson
+# A turn runs the agent until it answers. A run can end early (a rejected
+# command stops OpenCode), so it is resumed in the same session, within the
+# limits from the Settings screen: continuations, the token budget, a
+# wall-clock timeout per run, and a stop if the same command is rejected twice.
+# A run that ends with an answer ends the turn.
+RESULT=/data/last_result.ndjson
+RUN_FILE=/data/run.ndjson
+: > "$RESULT"
+SESSION="${OPENCODE_SESSION_ID:-}"
+MESSAGE_THIS_RUN="$MESSAGE"
+CONTINUATIONS_USED=0
+TOKENS_USED=0
+PREVIOUS_REJECTED=""
+STATE="unfinished"
+AGENT_EXIT=0
+while true; do
+    echo "=== Running agent (session ${SESSION:-<new>}, model $OPENCODE_MODEL, run $((CONTINUATIONS_USED + 1))) ==="
+    : > "$RUN_FILE"
+    set +e
+    if [ -n "$SESSION" ]; then
+        timeout "${AGENT_RUN_TIMEOUT_SECONDS:-900}" opencode run "$MESSAGE_THIS_RUN" \
+            -s "$SESSION" -m "$OPENCODE_MODEL" --format json > "$RUN_FILE"
+    else
+        timeout "${AGENT_RUN_TIMEOUT_SECONDS:-900}" opencode run "$MESSAGE_THIS_RUN" \
+            -m "$OPENCODE_MODEL" --format json > "$RUN_FILE"
+    fi
+    AGENT_EXIT=$?
+    set -e
+    cat "$RUN_FILE"
+    cat "$RUN_FILE" >> "$RESULT"
+
+    FOUND_SESSION=$(grep -m1 -o '"sessionID":"[^"]*"' "$RUN_FILE" | head -1 | cut -d'"' -f4 || true)
+    if [ -n "$FOUND_SESSION" ]; then
+        SESSION="$FOUND_SESSION"
+    fi
+    SUMMARY=$(python3 /opt/factory/run_summary.py "$RUN_FILE")
+    STATE=$(printf '%s\n' "$SUMMARY" | sed -n 's/^STATE=//p')
+    TOKENS=$(printf '%s\n' "$SUMMARY" | sed -n 's/^TOKENS=//p')
+    REJECTED=$(printf '%s\n' "$SUMMARY" | sed -n 's/^REJECTED=//p')
+    TOKENS_USED=$((TOKENS_USED + ${TOKENS:-0}))
+    echo "=== Run finished (exit $AGENT_EXIT, $STATE, ${TOKENS:-0} tokens; turn total $TOKENS_USED) ==="
+
+    if [ "$AGENT_EXIT" -eq 124 ]; then
+        echo "FACTORY_RUN_TIMED_OUT=1"
+        break
+    fi
+    if [ "$STATE" = "done" ]; then
+        break
+    fi
+    if [ -z "$SESSION" ]; then
+        echo "FACTORY_CONTINUE_STOPPED=the run has no session to resume"
+        break
+    fi
+    if [ "$CONTINUATIONS_USED" -ge "${AGENT_CONTINUATIONS:-2}" ]; then
+        echo "FACTORY_CONTINUE_STOPPED=continuation limit reached"
+        break
+    fi
+    if [ "$TOKENS_USED" -ge "${AGENT_TOKEN_BUDGET:-150000}" ]; then
+        echo "FACTORY_CONTINUE_STOPPED=token budget used"
+        break
+    fi
+    if [ -n "$REJECTED" ] && [ "$REJECTED" = "$PREVIOUS_REJECTED" ]; then
+        echo "FACTORY_CONTINUE_STOPPED=the same command was rejected again"
+        break
+    fi
+    PREVIOUS_REJECTED="$REJECTED"
+    CONTINUATIONS_USED=$((CONTINUATIONS_USED + 1))
+    MESSAGE_THIS_RUN="The previous run stopped before you answered, usually because a command was rejected. Carry on with the task: use the glob, grep and read tools, or a simpler command, and finish with a final answer."
+done
+
+# A turn that never reached an answer is a failure, not a clean finish.
+if [ "$STATE" != "done" ] && [ "$AGENT_EXIT" -eq 0 ]; then
+    AGENT_EXIT=1
 fi
-AGENT_EXIT=$?
-set -e
-cat /data/last_result.ndjson
 echo "=== Agent finished (exit $AGENT_EXIT) ==="
 
-NEW_SESSION_ID=$(grep -m1 -o '"sessionID":"[^"]*"' /data/last_result.ndjson | head -1 | cut -d'"' -f4 || true)
-if [ -n "$NEW_SESSION_ID" ]; then
-    echo "FACTORY_OPENCODE_SESSION_ID=${NEW_SESSION_ID}"
+if [ -n "$SESSION" ]; then
+    echo "FACTORY_OPENCODE_SESSION_ID=${SESSION}"
 fi
 
 if [ -n "$REPO" ]; then

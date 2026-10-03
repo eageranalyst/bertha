@@ -481,6 +481,19 @@ a:hover { text-decoration: underline; }
 .mermaid-error { margin: 14px 0; }
 .mermaid-error-message { color: var(--danger); font-size: 12px; margin-bottom: 6px; }
 
+/* -- settings ---------------------------------------------------------- */
+
+.settings-page { display: flex; flex-direction: column; gap: 12px; max-width: 760px; }
+.settings-list { display: flex; flex-direction: column; border: 1px solid var(--border-soft); border-radius: var(--radius); overflow: hidden; }
+.settings-row { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border-soft); }
+.settings-row:last-child { border-bottom: none; }
+.settings-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.settings-label { font-weight: 600; font-size: 13px; }
+.settings-help { font-size: 12.5px; color: var(--text-dim); line-height: 1.5; max-width: 480px; }
+.settings-range { font-size: 11.5px; color: var(--text-faint); }
+.settings-row input { width: 150px; text-align: right; }
+.settings-actions { display: flex; gap: 8px; align-items: center; }
+
 /* -- session model picker ------------------------------------------ */
 
 .model-select { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }

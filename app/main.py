@@ -19,6 +19,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from typing import Any
+
+from . import agent_settings
 from . import models as model_registry
 from . import store
 from .config import get_settings
@@ -451,6 +454,20 @@ class ModelIn(BaseModel):
     tier: str | None = None
     description: str | None = None
     enabled: bool | None = None
+
+
+@app.get("/api/settings")
+def api_get_settings():
+    return agent_settings.describe()
+
+
+@app.put("/api/settings")
+def api_update_settings(body: dict[str, Any]):
+    try:
+        store.set_settings_values(agent_settings.validate_update(body))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return agent_settings.describe()
 
 
 @app.get("/api/models")

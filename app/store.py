@@ -114,6 +114,14 @@ CREATE TABLE IF NOT EXISTS models (
     updated_at REAL NOT NULL
 );
 
+-- Settings the user can change in the UI, stored as text. Defaults and limits
+-- live in app/agent_settings.py.
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at REAL NOT NULL
+);
+
 -- A row here means the skill is enabled for the repo. Disabling deletes it.
 CREATE TABLE IF NOT EXISTS repo_skills (
     repo TEXT NOT NULL,
@@ -702,4 +710,24 @@ def update_model(key: str, **fields: Any) -> None:
         conn.execute(
             f"UPDATE models SET {assignments} WHERE key = ?",
             [*fields.values(), time.time(), key],
+        )
+
+
+# -- settings -----------------------------------------------------------
+
+def get_settings_values() -> dict[str, str]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT key, value FROM settings").fetchall()
+        return {r["key"]: r["value"] for r in rows}
+
+
+def set_settings_values(values: dict[str, str]) -> None:
+    now = time.time()
+    with _connect() as conn:
+        conn.executemany(
+            """
+            INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            [(k, v, now) for k, v in values.items()],
         )

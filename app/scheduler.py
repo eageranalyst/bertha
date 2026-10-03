@@ -43,6 +43,7 @@ from typing import Any
 
 import httpx
 
+from . import agent_settings
 from . import models as model_registry
 from . import store
 from .routing import route as route_turn
@@ -283,6 +284,8 @@ class Scheduler:
             "PROMPT": prompt,
             "OPENCODE_SESSION_ID": session["harness_session_id"] or "",
             "OPENCODE_MODEL": opencode_model,
+            # How far this turn may run: steps, continuations, timeout, token budget.
+            **agent_settings.env_for_turn(),
             # Every enabled model, so OpenCode knows the full set it can switch to.
             "MODELS_JSON": json.dumps([
                 {"key": m["key"], "model_id": m["model_id"]}

@@ -39,6 +39,17 @@ export interface Session {
   updated_at: number;
 }
 
+/** One of the limits on a code turn, from the Settings screen. */
+export interface AgentSetting {
+  key: string;
+  label: string;
+  help: string;
+  value: number;
+  default: number;
+  minimum: number;
+  maximum: number;
+}
+
 /** A local model Bertha can run sessions on. */
 export interface Model {
   key: string;
