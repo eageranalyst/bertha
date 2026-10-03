@@ -4,12 +4,21 @@ import { useEffect, useRef, useState } from "react";
 import type { LogEntry, Session } from "@/lib/types";
 import { Markdown } from "./Markdown";
 import { AgentOutputLog } from "./AgentOutputLog";
-
-const MARKDOWN_KINDS = new Set(["ask_response", "user_message", "pr_comment"]);
+import { MessageRow, MessageBubble, SystemDivider, type Role } from "./ChatPrimitives";
 
 function fmtTime(ts: number | null | undefined) {
   if (!ts) return "-";
   return new Date(ts * 1000).toLocaleString();
+}
+
+function speakerFor(kind: string, content: string): { role: Role; label: string } {
+  if (kind === "user_message") return { role: "user", label: "You" };
+  if (kind === "ask_response") return { role: "agent", label: "Agent" };
+  if (kind === "pr_comment") {
+    const author = content.match(/^@(\S+):/)?.[1];
+    return { role: "reviewer", label: author ? `@${author}` : "PR comment" };
+  }
+  return { role: "agent", label: "Agent" };
 }
 
 export function SessionDetail({
@@ -81,22 +90,23 @@ export function SessionDetail({
       </div>
 
       <div id="detail-logs" ref={logsRef}>
-        {logs.map((l) => (
-          <div className="log-line" key={l.id}>
-            <span className="log-kind">
-              [{new Date(l.created_at * 1000).toLocaleTimeString()}] ({l.kind})
-            </span>
-            {MARKDOWN_KINDS.has(l.kind) ? (
-              <Markdown>{l.content}</Markdown>
-            ) : l.kind === "agent_output" ? (
-              <AgentOutputLog content={l.content} />
-            ) : (
-              <div className="log-body" style={{ whiteSpace: "pre-wrap" }}>
-                {l.content}
-              </div>
-            )}
-          </div>
-        ))}
+        {logs.map((l) => {
+          const time = new Date(l.created_at * 1000).toLocaleTimeString();
+          if (l.kind === "system") {
+            return <SystemDivider key={l.id} time={time} content={l.content} />;
+          }
+          if (l.kind === "agent_output") {
+            return <AgentOutputLog key={l.id} content={l.content} time={time} />;
+          }
+          const { role, label } = speakerFor(l.kind, l.content);
+          return (
+            <MessageRow key={l.id} role={role} label={label} time={time}>
+              <MessageBubble>
+                <Markdown>{l.content}</Markdown>
+              </MessageBubble>
+            </MessageRow>
+          );
+        })}
       </div>
 
       <form
