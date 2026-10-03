@@ -35,6 +35,7 @@ Session lifecycle:
     closed / archived -> scheduler ignores these entirely
 """
 
+import json
 import logging
 import threading
 import time
@@ -241,6 +242,10 @@ class Scheduler:
             "LOCAL_MODEL_ID": self.settings.local_model_id,
             "BOT_NAME": self.settings.bot_name,
             "BOT_EMAIL": self.settings.bot_email,
+            # Skills enabled for this repo, written into /data/skills by the entrypoint.
+            "SKILLS_JSON": json.dumps(
+                store.list_repo_skills(session["repo"]) if session["repo"] else []
+            ),
             "PR_NUMBER": str(session["pr_number"] or ""),
             "PR_TITLE": (
                 f"{session['title']} (closes #{session['issue_number']})"

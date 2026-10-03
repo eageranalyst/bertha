@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from . import store
 from .config import get_settings
+from .skills import parse_skill
 from .docker_runner import DockerRunner
 from .github_client import GitHubClient
 from .scheduler import Scheduler
@@ -307,5 +308,85 @@ def api_index_wiki(repo_id: int, body: WikiIndexIn | None = None):
     if not wiki.start(repo["full_name"], force=bool(body and body.force)):
         raise HTTPException(409, "this repo's wiki is already being indexed")
     return api_get_wiki(repo_id)
+
+
+# -- skills library -----------------------------------------------------
+
+class SkillIn(BaseModel):
+    content: str
+
+
+class SkillMetadataIn(BaseModel):
+    metadata: dict[str, str]
+
+
+class RepoSkillIn(BaseModel):
+    enabled: bool
+
+
+def _skill_or_404(skill_id: int) -> dict:
+    skill = store.get_skill(skill_id)
+    if not skill:
+        raise HTTPException(404, "skill not found")
+    return skill
+
+
+@app.get("/api/skills")
+def api_list_skills():
+    return store.list_skills()
+
+
+@app.post("/api/skills")
+def api_save_skill(body: SkillIn):
+    try:
+        name, description = parse_skill(body.content)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    skill, created = store.save_skill(name, description, body.content)
+    return {**skill, "created": created}
+
+
+@app.get("/api/skills/by-name/{name}")
+def api_get_skill_by_name(name: str):
+    skill = store.get_skill_by_name(name)
+    if not skill:
+        raise HTTPException(404, "skill not found")
+    return skill
+
+
+@app.get("/api/skills/{skill_id}")
+def api_get_skill(skill_id: int):
+    return _skill_or_404(skill_id)
+
+
+@app.put("/api/skills/{skill_id}/metadata")
+def api_set_skill_metadata(skill_id: int, body: SkillMetadataIn):
+    _skill_or_404(skill_id)
+    for key, value in body.metadata.items():
+        if not key.strip() or len(key) > 64 or len(value) > 500:
+            raise HTTPException(400, "metadata keys must be 1-64 characters and values 500 at most")
+    store.set_skill_metadata(skill_id, {k.strip(): v for k, v in body.metadata.items()})
+    return _skill_or_404(skill_id)
+
+
+@app.delete("/api/skills/{skill_id}")
+def api_delete_skill(skill_id: int):
+    _skill_or_404(skill_id)
+    store.delete_skill(skill_id)
+    return {"ok": True}
+
+
+@app.get("/api/repos/{repo_id}/skills")
+def api_repo_skills(repo_id: int):
+    repo = _repo_or_404(repo_id)
+    return store.library_for_repo(repo["full_name"])
+
+
+@app.put("/api/repos/{repo_id}/skills/{skill_id}")
+def api_set_repo_skill(repo_id: int, skill_id: int, body: RepoSkillIn):
+    repo = _repo_or_404(repo_id)
+    _skill_or_404(skill_id)
+    store.set_repo_skill(repo["full_name"], skill_id, body.enabled)
+    return store.library_for_repo(repo["full_name"])
 
 

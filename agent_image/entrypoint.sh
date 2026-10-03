@@ -43,6 +43,20 @@ export HOME=/data
 export GH_TOKEN="$GITHUB_TOKEN"
 mkdir -p "$HOME/.config/opencode"
 
+# Skills enabled for this repo, written fresh every turn so a skill that
+# was switched off since the last turn disappears. OpenCode reads them
+# from $HOME/skills (see "skills" in the config below).
+rm -rf "$HOME/skills"
+mkdir -p "$HOME/skills"
+printf '%s' "${SKILLS_JSON:-[]}" | python3 -c '
+import json, os, pathlib, sys
+root = pathlib.Path(os.environ["HOME"]) / "skills"
+for skill in json.load(sys.stdin):
+    folder = root / skill["name"]
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "SKILL.md").write_text(skill["content"])
+'
+
 cat > "$HOME/.config/opencode/opencode.jsonc" <<EOF
 {
   "\$schema": "https://opencode.ai/config.json",
@@ -56,6 +70,7 @@ cat > "$HOME/.config/opencode/opencode.jsonc" <<EOF
       }
     }
   },
+  "skills": { "paths": ["${HOME}/skills"] },
   "permission": {
     "edit": "allow",
     "webfetch": "deny",
