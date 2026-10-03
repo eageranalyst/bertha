@@ -40,18 +40,25 @@ export function SessionDetail({
 }) {
   const [text, setText] = useState("");
   const logsRef = useRef<HTMLDivElement>(null);
+  // Set when the user sends a message, so the transcript scrolls to it
+  // even if they'd scrolled up to read earlier output.
+  const forceScrollRef = useRef(false);
 
   useEffect(() => {
     const el = logsRef.current;
     if (!el) return;
     const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
-    if (atBottom) el.scrollTop = el.scrollHeight;
+    if (atBottom || forceScrollRef.current) {
+      el.scrollTop = el.scrollHeight;
+      forceScrollRef.current = false;
+    }
   }, [logs]);
 
   async function submit() {
     const trimmed = text.trim();
     if (!trimmed) return;
     setText("");
+    forceScrollRef.current = true;
     await onMessage(trimmed);
   }
 
