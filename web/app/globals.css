@@ -477,6 +477,31 @@ a:hover { text-decoration: underline; }
 .mermaid-error { margin: 14px 0; }
 .mermaid-error-message { color: var(--danger); font-size: 12px; margin-bottom: 6px; }
 
+/* -- friendly empty states (not indexed / page missing) ------------ */
+
+.wiki-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 40px 24px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+}
+.wiki-mascot { width: 120px; height: 96px; margin-bottom: 6px; }
+.wiki-mascot-shadow { fill: var(--border); opacity: 0.6; }
+.wiki-mascot-page { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+.wiki-mascot-page-right { fill: var(--code-accent-soft); stroke: var(--code-accent); }
+.wiki-mascot-line { fill: none; stroke: var(--text-faint); stroke-width: 1.6; stroke-linecap: round; }
+.wiki-mascot-face { fill: none; stroke: var(--text); stroke-width: 2; stroke-linecap: round; }
+.wiki-mascot-blush { fill: var(--danger); opacity: 0.35; }
+.wiki-mascot-sparkle { fill: var(--warn); }
+.wiki-empty-title { margin: 0; font-size: 16px; font-weight: 600; }
+.wiki-empty-body { margin: 0 0 10px; max-width: 420px; font-size: 13px; line-height: 1.55; color: var(--text-dim); }
+.wiki-empty code { font-size: 12.5px; background: var(--bg-sunken); padding: 1px 6px; border-radius: 4px; }
+
 @media (max-width: 860px) {
   .wiki-body { flex-direction: column; }
   .wiki-nav { width: 100%; position: static; flex-direction: row; flex-wrap: wrap; gap: 8px 16px; }

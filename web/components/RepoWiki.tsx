@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { fmtTime } from "@/lib/format";
 import type { WikiPage, WikiResponse } from "@/lib/types";
 import { Markdown } from "./Markdown";
+import { WikiNotIndexed, WikiPageMissing } from "./WikiNotFound";
 import { WikiStatusPill } from "./WikiStatusPill";
 
 const HOME_SLUG = "overview";
@@ -13,10 +14,16 @@ function errorText(err: unknown) {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** api.ts throws "<status> <body>" for failed requests. */
+function isNotFound(err: unknown) {
+  return err instanceof Error && err.message.startsWith("404");
+}
+
 export function RepoWiki({ repoId }: { repoId: number }) {
   const [data, setData] = useState<WikiResponse | null>(null);
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [page, setPage] = useState<WikiPage | null>(null);
+  const [missingSlug, setMissingSlug] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,13 +62,26 @@ export function RepoWiki({ repoId }: { repoId: number }) {
   useEffect(() => {
     if (!currentSlug) {
       setPage(null);
+      setMissingSlug(null);
       return;
     }
     let alive = true;
     api
       .getWikiPage(repoId, currentSlug)
-      .then((p) => alive && setPage(p))
-      .catch((err) => alive && setError(errorText(err)));
+      .then((p) => {
+        if (!alive) return;
+        setPage(p);
+        setMissingSlug(null);
+      })
+      .catch((err) => {
+        if (!alive) return;
+        if (isNotFound(err)) {
+          setPage(null);
+          setMissingSlug(currentSlug);
+        } else {
+          setError(errorText(err));
+        }
+      });
     return () => {
       alive = false;
     };
@@ -140,11 +160,11 @@ export function RepoWiki({ repoId }: { repoId: number }) {
       {error && <div className="wiki-error">{error}</div>}
 
       {pages.length === 0 ? (
-        <div className="empty-state">
-          {indexing
-            ? (index?.progress ?? "Indexing…")
-            : "No wiki yet. Indexing clones the repo, scans it, and has the local model write pages from what it finds. This can take a while."}
-        </div>
+        indexing ? (
+          <div className="empty-state">{index?.progress ?? "Indexing…"}</div>
+        ) : (
+          <WikiNotIndexed onIndex={() => startIndex(false)} busy={busy} />
+        )
       ) : (
         <div className="wiki-body">
           <nav className="wiki-nav" aria-label="Wiki pages">
@@ -166,7 +186,9 @@ export function RepoWiki({ repoId }: { repoId: number }) {
           </nav>
 
           <article className="wiki-article">
-            {page ? (
+            {missingSlug ? (
+              <WikiPageMissing slug={missingSlug} onHome={() => setSelectedSlug(HOME_SLUG)} />
+            ) : page ? (
               <>
                 <h2 className="wiki-title">{page.title}</h2>
                 <div className="wiki-page-meta">Updated {fmtTime(page.updated_at)}</div>
