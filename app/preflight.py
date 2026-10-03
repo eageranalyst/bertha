@@ -8,7 +8,6 @@ hands the app over.
 """
 
 import os
-import socket
 
 REQUIRED_ENV = {
     "GITHUB_TOKEN": "a GitHub personal access token for the bot account (see .env.example)",
@@ -37,31 +36,12 @@ def _docker_problem() -> list[str]:
     return []
 
 
-def _port_problem(host: str, port: int) -> list[str]:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        # Match uvicorn, which sets this too. Without it, connections left
-        # in TIME_WAIT after a server stops make the port look busy.
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            s.bind((host, port))
-        except OSError:
-            return [
-                f"Port {port} is already in use. Another copy of the server is probably "
-                f"running (a terminal session, or a launchd agent). Stop that one, or set "
-                f"FACTORY_PORT to a different port."
-            ]
-    return []
-
-
 def run_preflight() -> None:
-    host = os.environ.get("FACTORY_HOST", "127.0.0.1")
-    port = int(os.environ.get("FACTORY_PORT", "8787"))
     problems = _missing_env()
-    # Only probe Docker and the port if the basics are in place; otherwise
+    # Only probe Docker if the basics are in place; otherwise
     # the message list would bury the actual fix.
     if not problems:
         problems += _docker_problem()
-        problems += _port_problem(host, port)
     if not problems:
         return
     lines = ["", "Agent Factory can't start yet:", ""]
