@@ -461,6 +461,46 @@ class Scheduler:
             "session %s turn finished: exit=%s pr=%s -> %s",
             session["id"], exit_code, pr_number, new_status,
         )
+        if new_status == "failed" and "FACTORY_CONTEXT_TOO_SMALL=1" in logs:
+            self._retry_with_more_context(store.get_session(session["id"]))
+
+    def _retry_with_more_context(self, session: dict[str, Any]) -> None:
+        """A turn whose prompt didn't fit the model's context never started,
+        so it's run again on a model that fits, once per model. A pinned
+        session isn't moved; the failure says why instead.
+        """
+        failed_model = session["model"]
+        if session["model_pinned"]:
+            store.append_log(
+                session["id"], "system",
+                f"{failed_model}'s context is too small for this turn. Pick a bigger model, "
+                "or load this one with a larger context in the model server.",
+            )
+            return
+        prompt = next(
+            (l["content"] for l in reversed(store.list_logs(session["id"]))
+             if l["kind"] in ("user_message", "pr_comment")),
+            session["title"] or "",
+        )
+        task = {"session_type": "code", "has_repo": bool(session["repo"]), "prompt": prompt}
+        chosen, _reason = route_turn(
+            self.settings, {**session, "last_turn_failed": 1}, task,
+            exclude=frozenset({failed_model} if failed_model else ()),
+        )
+        if chosen is None or chosen["key"] == failed_model:
+            store.append_log(
+                session["id"], "system",
+                "No enabled model has enough context for this turn. Load a model with a "
+                "larger context, or lower the minimum in Settings.",
+            )
+            return
+        store.update_session(session["id"], model=chosen["key"], last_turn_failed=1)
+        store.append_log(
+            session["id"], "system",
+            f"Retrying on {chosen['key']}: {failed_model}'s context is too small for this turn",
+        )
+        # Queues the same task again; the next tick launches it.
+        store.set_pending_message(session["id"], prompt)
 
     # -- idle / sleep (code sessions with a PR only) --------------------
 

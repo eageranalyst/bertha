@@ -17,6 +17,7 @@ from typing import Any
 
 import httpx
 
+from . import agent_settings
 from . import models as registry
 from . import store
 from .config import Settings
@@ -53,6 +54,8 @@ def pick_model(enabled: list[dict[str, Any]], current: dict[str, Any] | None, ti
     target = TIERS.index(tier)
     for candidate in sorted(TIERS, key=lambda t: (abs(TIERS.index(t) - target), -TIERS.index(t))):
         matches = sorted((m for m in enabled if m["tier"] == candidate), key=lambda m: m["key"])
+        if current and any(m["key"] == current["key"] for m in matches):
+            return current  # the nearest tier is the one it's already on
         if matches:
             return matches[0]
     return None
@@ -104,24 +107,49 @@ def classify(settings: Settings, light: dict[str, Any], task: dict[str, Any]) ->
     return tier, reason or "no reason given"
 
 
-def route(settings: Settings, session: dict[str, Any], task: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+def eligible_models(task: dict[str, Any], exclude: frozenset[str] = frozenset()) -> list[dict[str, Any]]:
+    """Enabled models that can take this turn. A code turn needs at least the
+    configured context; a model whose context isn't known is let through.
+    """
+    minimum = agent_settings.current()["min_code_context"] if task["session_type"] == "code" else 0
+    return [
+        m for m in store.list_models()
+        if m["enabled"]
+        and m["key"] not in exclude
+        and (m.get("context_length") is None or m["context_length"] >= minimum)
+    ]
+
+
+def route(
+    settings: Settings,
+    session: dict[str, Any],
+    task: dict[str, Any],
+    exclude: frozenset[str] = frozenset(),
+) -> tuple[dict[str, Any] | None, str | None]:
     """The model this turn should run on, and why it changed (None when it didn't).
 
     `task` has session_type, has_repo and prompt. The session's own previous
-    failure is read from the session.
+    failure is read from the session. Models in `exclude` are never chosen.
     """
     current = registry.resolve(settings, session.get("model"))
     if not settings.routing_enabled or session.get("model_pinned"):
         return current, None
 
-    enabled = [m for m in store.list_models() if m["enabled"]]
-    light = pick_model(enabled, None, "light")
+    registry.refresh_context(settings)
+    enabled = eligible_models(task, exclude)
+    if current and current["key"] not in {m["key"] for m in enabled}:
+        # The current model can't take this turn (too little context, or
+        # excluded): routing has to move it, even if the classifier is down.
+        current = None
+    light = pick_model([m for m in store.list_models() if m["enabled"]], None, "light")
     if light is None or not task["prompt"].strip():
-        return current, None
+        fallback = current or pick_model(enabled, None, "strong")
+        return fallback, None if fallback is current else "the current model can't take this turn"
 
     answer = classify(settings, light, {**task, "previous_failed": bool(session.get("last_turn_failed"))})
     if answer is None:
-        return current, None
+        fallback = current or pick_model(enabled, None, "strong")
+        return fallback, None if fallback is current else "the current model can't take this turn"
     tier, reason = answer
     if session.get("last_turn_failed"):
         tier = escalate(tier)

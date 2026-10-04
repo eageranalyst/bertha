@@ -6,6 +6,9 @@ Printed as key=value lines for the entrypoint:
   STATE=unfinished  the run ended mid-work, e.g. after a rejected tool call
   TOKENS=<n>        tokens used by this run
   REJECTED=<cmd>    the command of the last failed or rejected tool call, if any
+  STATE=error       the model itself returned an error; resuming won't help
+  ERROR=<text>      that error's message
+  CONTEXT=1         the error was the prompt not fitting the model's context
 """
 
 import json
@@ -20,6 +23,7 @@ def summarize(path: str) -> dict[str, str]:
     # plus its own output, which is what this measures.
     previous_input = 0
     rejected = ""
+    error = ""
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             lines = fh.readlines()
@@ -31,7 +35,16 @@ def summarize(path: str) -> dict[str, str]:
         except ValueError:
             continue
         part = event.get("part") or {}
-        if event.get("type") == "step_finish":
+        if event.get("type") == "error":
+            detail = event.get("error") or {}
+            message = (detail.get("data") or {}).get("message") or detail.get("name") or "model error"
+            try:
+                # LM Studio wraps its message in JSON inside the message.
+                message = json.loads(message).get("message", message)
+            except (ValueError, AttributeError):
+                pass
+            error = str(message).replace("\n", " ")[:300]
+        elif event.get("type") == "step_finish":
             last_reason = part.get("reason")
             usage = part.get("tokens") or {}
             step_input = int(usage.get("input") or 0)
@@ -42,10 +55,18 @@ def summarize(path: str) -> dict[str, str]:
             if state.get("status") == "error":
                 tool_input = state.get("input") or {}
                 rejected = str(tool_input.get("command") or part.get("tool") or "")
+    if last_reason == "stop":
+        state = "done"
+    elif error:
+        state = "error"
+    else:
+        state = "unfinished"
     return {
-        "STATE": "done" if last_reason == "stop" else "unfinished",
+        "STATE": state,
         "TOKENS": str(tokens),
         "REJECTED": rejected,
+        "ERROR": error,
+        "CONTEXT": "1" if "context length" in error.lower() else "",
     }
 
 

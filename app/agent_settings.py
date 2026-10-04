@@ -19,8 +19,9 @@ class Setting:
     default: int
     minimum: int
     maximum: int
-    # The environment variable the entrypoint reads it from.
-    env: str
+    # The environment variable the entrypoint reads it from; None for settings
+    # Bertha uses itself.
+    env: str | None
 
 
 SETTINGS: tuple[Setting, ...] = (
@@ -60,6 +61,15 @@ SETTINGS: tuple[Setting, ...] = (
         maximum=2_000_000,
         env="AGENT_TOKEN_BUDGET",
     ),
+    Setting(
+        key="min_code_context",
+        label="Minimum context for code sessions",
+        help="Routing won't send a code turn to a model with a smaller context window. A code turn's prompt alone is around 15k tokens.",
+        default=32_768,
+        minimum=4_096,
+        maximum=1_048_576,
+        env=None,
+    ),
 )
 BY_KEY = {s.key: s for s in SETTINGS}
 
@@ -82,6 +92,8 @@ def env_for_turn() -> dict[str, str]:
     values = current()
     env = {}
     for s in SETTINGS:
+        if s.env is None:
+            continue
         value = values[s.key]
         env[s.env] = str(value * 60) if s.key == "run_timeout_minutes" else str(value)
     return env

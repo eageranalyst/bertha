@@ -58,7 +58,30 @@ def discover(settings: Settings) -> list[str]:
 def refresh(settings: Settings) -> list[dict[str, Any]]:
     for model_id in discover(settings):
         store.add_discovered_model(key_for(model_id), model_id, infer_tier(model_id))
+    refresh_context(settings)
     return store.list_models()
+
+
+def refresh_context(settings: Settings) -> None:
+    """Records each model's context size from LM Studio's native API: the
+    loaded context when the model is loaded (that's what a request gets),
+    otherwise its maximum. Servers without that API leave it unknown, and
+    an unreachable server leaves the stored values as they were.
+    """
+    native = settings.local_model_host_base_url.rstrip("/").removesuffix("/v1") + "/api/v0/models"
+    try:
+        response = httpx.get(native, timeout=5)
+        response.raise_for_status()
+        reported = response.json().get("data", [])
+    except Exception:
+        return
+    by_id = {
+        m.get("id"): m.get("loaded_context_length") or m.get("max_context_length")
+        for m in reported
+    }
+    for model in store.list_models():
+        if model["model_id"] in by_id:
+            store.set_model_context(model["key"], by_id[model["model_id"]])
 
 
 def default_model(settings: Settings) -> dict[str, Any] | None:

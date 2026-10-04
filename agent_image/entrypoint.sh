@@ -257,6 +257,14 @@ while true; do
     if [ "$STATE" = "done" ]; then
         break
     fi
+    if [ "$STATE" = "error" ]; then
+        # The model rejected the request itself; the same model will again.
+        echo "FACTORY_MODEL_ERROR=$(printf '%s\n' "$SUMMARY" | sed -n 's/^ERROR=//p')"
+        if [ -n "$(printf '%s\n' "$SUMMARY" | sed -n 's/^CONTEXT=//p')" ]; then
+            echo "FACTORY_CONTEXT_TOO_SMALL=1"
+        fi
+        break
+    fi
     if [ -z "$SESSION" ]; then
         echo "FACTORY_CONTINUE_STOPPED=the run has no session to resume"
         break
