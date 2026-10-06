@@ -9,6 +9,7 @@ Printed as key=value lines for the entrypoint:
   STATE=error       the model itself returned an error; resuming won't help
   ERROR=<text>      that error's message
   CONTEXT=1         the error was the prompt not fitting the model's context
+  UNLOADABLE=1      the server couldn't load the model (e.g. not enough memory)
 """
 
 import json
@@ -67,6 +68,7 @@ def summarize(path: str) -> dict[str, str]:
         "REJECTED": rejected,
         "ERROR": error,
         "CONTEXT": "1" if "context length" in error.lower() else "",
+        "UNLOADABLE": "1" if "failed to load model" in error.lower() else "",
     }
 
 

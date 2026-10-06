@@ -462,20 +462,26 @@ class Scheduler:
             session["id"], exit_code, pr_number, new_status,
         )
         if new_status == "failed" and "FACTORY_CONTEXT_TOO_SMALL=1" in logs:
-            self._retry_with_more_context(store.get_session(session["id"]))
+            self._retry_on_another_model(
+                store.get_session(session["id"]),
+                "its context is too small for this turn",
+                "Pick a bigger model, or load this one with a larger context in the model server.",
+            )
+        elif new_status == "failed" and "FACTORY_MODEL_UNAVAILABLE=1" in logs:
+            self._retry_on_another_model(
+                store.get_session(session["id"]),
+                "the model server couldn't load it",
+                "Pick a model that's loaded, or free memory in the model server.",
+            )
 
-    def _retry_with_more_context(self, session: dict[str, Any]) -> None:
-        """A turn whose prompt didn't fit the model's context never started,
-        so it's run again on a model that fits, once per model. A pinned
+    def _retry_on_another_model(self, session: dict[str, Any], problem: str, advice: str) -> None:
+        """A turn whose model couldn't take the request never started, so it's
+        run again on another model, excluding the one that failed. A pinned
         session isn't moved; the failure says why instead.
         """
         failed_model = session["model"]
         if session["model_pinned"]:
-            store.append_log(
-                session["id"], "system",
-                f"{failed_model}'s context is too small for this turn. Pick a bigger model, "
-                "or load this one with a larger context in the model server.",
-            )
+            store.append_log(session["id"], "system", f"{failed_model} can't run this turn: {problem}. {advice}")
             return
         prompt = next(
             (l["content"] for l in reversed(store.list_logs(session["id"]))
@@ -490,14 +496,14 @@ class Scheduler:
         if chosen is None or chosen["key"] == failed_model:
             store.append_log(
                 session["id"], "system",
-                "No enabled model has enough context for this turn. Load a model with a "
-                "larger context, or lower the minimum in Settings.",
+                f"{failed_model} can't run this turn ({problem}), and no other enabled model can "
+                "take it. Load a model with enough context, or lower the minimum in Settings.",
             )
             return
         store.update_session(session["id"], model=chosen["key"], last_turn_failed=1)
         store.append_log(
             session["id"], "system",
-            f"Retrying on {chosen['key']}: {failed_model}'s context is too small for this turn",
+            f"Retrying on {chosen['key']}: {failed_model} can't run this turn ({problem})",
         )
         # Queues the same task again; the next tick launches it.
         store.set_pending_message(session["id"], prompt)

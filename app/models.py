@@ -76,12 +76,20 @@ def refresh_context(settings: Settings) -> None:
     except Exception:
         return
     by_id = {
-        m.get("id"): m.get("loaded_context_length") or m.get("max_context_length")
+        m.get("id"): (m.get("loaded_context_length") or m.get("max_context_length"), m.get("state") == "loaded")
         for m in reported
     }
     for model in store.list_models():
         if model["model_id"] in by_id:
-            store.set_model_context(model["key"], by_id[model["model_id"]])
+            context, loaded = by_id[model["model_id"]]
+            store.set_model_context(model["key"], context, loaded)
+
+
+def availability(model: dict[str, Any]) -> int:
+    """Sort key: loaded models first, unknown next, not-loaded last. Loading a
+    model can fail for lack of memory, and costs time even when it works.
+    """
+    return {1: 0, None: 1, 0: 2}.get(model.get("loaded"), 1)
 
 
 def default_model(settings: Settings) -> dict[str, Any] | None:
@@ -94,9 +102,9 @@ def default_model(settings: Settings) -> dict[str, Any] | None:
         if pinned:
             return pinned
     for tier in reversed(TIERS):
-        match = next((m for m in enabled if m["tier"] == tier), None)
-        if match:
-            return match
+        in_tier = sorted((m for m in enabled if m["tier"] == tier), key=lambda m: (availability(m), m["key"]))
+        if in_tier:
+            return in_tier[0]
     return None
 
 

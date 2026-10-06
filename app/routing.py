@@ -53,7 +53,10 @@ def pick_model(enabled: list[dict[str, Any]], current: dict[str, Any] | None, ti
         return current
     target = TIERS.index(tier)
     for candidate in sorted(TIERS, key=lambda t: (abs(TIERS.index(t) - target), -TIERS.index(t))):
-        matches = sorted((m for m in enabled if m["tier"] == candidate), key=lambda m: m["key"])
+        matches = sorted(
+            (m for m in enabled if m["tier"] == candidate),
+            key=lambda m: (registry.availability(m), m["key"]),
+        )
         if current and any(m["key"] == current["key"] for m in matches):
             return current  # the nearest tier is the one it's already on
         if matches:

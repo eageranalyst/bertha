@@ -163,6 +163,9 @@ def _add_missing_session_columns(conn: sqlite3.Connection) -> None:
         # Tokens the model can take, as the server reports it: the loaded
         # context if it's loaded, else its maximum. Null when unknown.
         conn.execute("ALTER TABLE models ADD COLUMN context_length INTEGER")
+    if model_cols and "loaded" not in model_cols:
+        # 1 loaded in the server now, 0 not loaded, null unknown.
+        conn.execute("ALTER TABLE models ADD COLUMN loaded INTEGER")
     page_cols = {row[1] for row in conn.execute("PRAGMA table_info(wiki_pages)").fetchall()}
     if "commit_sha" not in page_cols:
         conn.execute("ALTER TABLE wiki_pages ADD COLUMN commit_sha TEXT")
@@ -715,12 +718,15 @@ def add_discovered_model(key: str, model_id: str, tier: str) -> None:
         )
 
 
-def set_model_context(key: str, context_length: int | None) -> None:
-    """Records what the server says about a model's context. Not a user
-    setting, so it's updated whenever the server is asked.
+def set_model_context(key: str, context_length: int | None, loaded: bool | None = None) -> None:
+    """Records what the server says about a model's context and whether it's
+    loaded. Not user settings, so they're updated whenever the server is asked.
     """
     with _connect() as conn:
-        conn.execute("UPDATE models SET context_length = ? WHERE key = ?", (context_length, key))
+        conn.execute(
+            "UPDATE models SET context_length = ?, loaded = ? WHERE key = ?",
+            (context_length, None if loaded is None else int(loaded), key),
+        )
 
 
 def update_model(key: str, **fields: Any) -> None:

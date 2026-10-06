@@ -9,24 +9,23 @@
 # same script against the same volume.
 #
 # Permission posture: no --auto. The bash permission block below is a
-# default-deny allowlist ("*": "ask", with specific safe patterns set
-# to "allow") -- verified against this opencode build to auto-reject
-# anything unmatched within a few seconds when run unattended, rather
-# than hanging or silently allowing. Extend the allowlist if a repo
-# needs another build tool; don't switch to --auto to work around it.
+# default-deny allowlist ("*": "deny", with specific safe patterns set
+# to "allow"). The catch-all is "deny", not "ask": unattended, "ask"
+# becomes a rejection that ends the whole run, while "deny" hands the
+# model an error and lets it try something else (verified against this
+# opencode build). Extend the allowlist if a repo needs another build
+# tool; don't switch to --auto to work around it.
 #
 # Two things worth knowing about how this matches:
-# - Rules match the WHOLE command string, not each piped/chained part.
-#   "pwd && ls -la" only matches if some rule matches that literal
-#   string from the start -- "ls*" alone won't catch it. Rules are
-#   evaluated in order with the LAST match winning, so the "deny"
-#   patterns near the end are a backstop against an allowed prefix
-#   (e.g. "cd *") hiding something dangerous after a "&&".
+# - This opencode build checks each part of a pipeline or chain on its
+#   own: "git log | tail -30" needs both "git log*" and "tail *" to be
+#   allowed. Rules are evaluated in order with the LAST match winning,
+#   so the "deny" patterns near the end are a backstop.
 # - "echo" and "env"/"printenv" are deliberately NOT allowlisted:
 #   GITHUB_TOKEN is a real env var in this container (needed for git
 #   push / gh pr create), and both can read env vars straight into
 #   the transcript ("echo $GITHUB_TOKEN"). They fall through to the
-#   "ask" catch-all and auto-reject instead.
+#   "deny" catch-all.
 set -euo pipefail
 
 REPO="${REPO:-}"
@@ -93,7 +92,7 @@ cat > "$HOME/.config/opencode/opencode.jsonc" <<EOF
     "websearch": "deny",
     "external_directory": "deny",
     "bash": {
-      "*": "ask",
+      "*": "deny",
       "git status*": "allow",
       "git -C /data/repo *": "allow",
       "git diff*": "allow",
@@ -146,6 +145,16 @@ cat > "$HOME/.config/opencode/opencode.jsonc" <<EOF
       "df*": "allow",
       "diff *": "allow",
       "cd *": "allow",
+      "sed -n *": "allow",
+      "sort*": "allow",
+      "uniq*": "allow",
+      "cut *": "allow",
+      "tr *": "allow",
+      "basename *": "allow",
+      "dirname *": "allow",
+      "stat *": "allow",
+      "*sed -i*": "deny",
+      "*sed * -i*": "deny",
       "*rm -rf*": "deny",
       "*rm -fr*": "deny",
       "*sudo *": "deny",
@@ -262,6 +271,9 @@ while true; do
         echo "FACTORY_MODEL_ERROR=$(printf '%s\n' "$SUMMARY" | sed -n 's/^ERROR=//p')"
         if [ -n "$(printf '%s\n' "$SUMMARY" | sed -n 's/^CONTEXT=//p')" ]; then
             echo "FACTORY_CONTEXT_TOO_SMALL=1"
+        fi
+        if [ -n "$(printf '%s\n' "$SUMMARY" | sed -n 's/^UNLOADABLE=//p')" ]; then
+            echo "FACTORY_MODEL_UNAVAILABLE=1"
         fi
         break
     fi
