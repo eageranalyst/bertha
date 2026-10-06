@@ -8,24 +8,20 @@
 # turn (a wake-up, or a repo getting attached later) just reruns this
 # same script against the same volume.
 #
-# Permission posture: no --auto. The bash permission block below is a
-# default-deny allowlist ("*": "deny", with specific safe patterns set
-# to "allow"). The catch-all is "deny", not "ask": unattended, "ask"
-# becomes a rejection that ends the whole run, while "deny" hands the
-# model an error and lets it try something else (verified against this
-# opencode build). Extend the allowlist if a repo needs another build
-# tool; don't switch to --auto to work around it.
+# Permission posture: the agent works like a hosted agent in its sandbox.
+# Bash is allowed by default, because the boundary does the security work:
+# the container has no route out except the egress proxy (GitHub, package
+# registries, the model server), the agent runs as an unprivileged user,
+# and its environment holds no credentials (see AS_AGENT below). What's
+# left on the denylist is what would wreck the turn or bypass Bertha:
+# pushing (Bertha pushes after the turn), wiping the workspace, piping
+# downloads into a shell, and disk tools.
 #
-# Two things worth knowing about how this matches:
-# - This opencode build checks each part of a pipeline or chain on its
-#   own: "git log | tail -30" needs both "git log*" and "tail *" to be
-#   allowed. Rules are evaluated in order with the LAST match winning,
-#   so the "deny" patterns near the end are a backstop.
-# - "echo" and "env"/"printenv" are deliberately NOT allowlisted:
-#   GITHUB_TOKEN is a real env var in this container (needed for git
-#   push / gh pr create), and both can read env vars straight into
-#   the transcript ("echo $GITHUB_TOKEN"). They fall through to the
-#   "deny" catch-all.
+# How the rules match, in this opencode build:
+# - Each part of a pipeline or chain is checked on its own, and the LAST
+#   matching rule wins, so the denies after "*" apply.
+# - A denied command returns an error to the model, which carries on.
+#   (An "ask" rule would end the whole run when nobody is there to answer.)
 set -euo pipefail
 
 REPO="${REPO:-}"
@@ -92,75 +88,21 @@ cat > "$HOME/.config/opencode/opencode.jsonc" <<EOF
     "websearch": "deny",
     "external_directory": "deny",
     "bash": {
-      "*": "deny",
-      "git status*": "allow",
-      "git -C /data/repo *": "allow",
-      "git diff*": "allow",
-      "git log*": "allow",
-      "git show*": "allow",
-      "git ls-files*": "allow",
-      "git ls-tree*": "allow",
-      "git rev-parse*": "allow",
-      "git rev-list*": "allow",
-      "git grep*": "allow",
-      "git blame*": "allow",
-      "git shortlog*": "allow",
-      "git describe*": "allow",
-      "git cat-file*": "allow",
-      "git add*": "allow",
-      "git commit*": "allow",
-      "git checkout*": "allow",
-      "git branch*": "allow",
-      "git fetch*": "allow",
-      "git pull*": "allow",
-      "git push*": "allow",
-      "git merge*": "allow",
-      "git rebase*": "allow",
-      "git stash*": "allow",
-      "git ls-remote*": "allow",
-      "npm *": "allow",
-      "npx *": "allow",
-      "node *": "allow",
-      "pip *": "allow",
-      "pip3 *": "allow",
-      "python*": "allow",
-      "pytest*": "allow",
-      "gh pr *": "allow",
-      "gh issue *": "allow",
-      "ls*": "allow",
-      "cat *": "allow",
-      "grep*": "allow",
-      "find *": "allow",
-      "mkdir *": "allow",
-      "wc *": "allow",
-      "head *": "allow",
-      "tail *": "allow",
-      "pwd*": "allow",
-      "which *": "allow",
-      "date*": "allow",
-      "true*": "allow",
-      "type *": "allow",
-      "file *": "allow",
-      "du *": "allow",
-      "df*": "allow",
-      "diff *": "allow",
-      "cd *": "allow",
-      "sed -n *": "allow",
-      "sort*": "allow",
-      "uniq*": "allow",
-      "cut *": "allow",
-      "tr *": "allow",
-      "basename *": "allow",
-      "dirname *": "allow",
-      "stat *": "allow",
-      "*sed -i*": "deny",
-      "*sed * -i*": "deny",
-      "*rm -rf*": "deny",
-      "*rm -fr*": "deny",
+      "*": "allow",
+      "git push*": "deny",
+      "git * push*": "deny",
+      "*rm -rf /": "deny",
+      "*rm -rf / *": "deny",
+      "*rm -rf /data": "deny",
+      "*rm -rf /data/": "deny",
+      "*rm -rf /data/repo": "deny",
+      "*rm -rf /data/repo/": "deny",
+      "*rm -rf ~*": "deny",
+      "*rm -rf \$HOME*": "deny",
       "*sudo *": "deny",
       "* dd *": "deny",
+      "dd *": "deny",
       "*mkfs*": "deny",
-      "*chmod -R 777*": "deny",
       "*:(){ :": "deny",
       "*|sh*": "deny",
       "*| sh*": "deny",
