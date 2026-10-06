@@ -254,17 +254,18 @@ AGENT_EXIT=0
 while true; do
     echo "=== Running agent (session ${SESSION:-<new>}, model $OPENCODE_MODEL, run $((CONTINUATIONS_USED + 1))) ==="
     : > "$RUN_FILE"
+    # The events go to stdout as they happen (Bertha streams the container's
+    # output into the transcript) and to the run file for the summary below.
     set +e
     if [ -n "$SESSION" ]; then
         timeout "${AGENT_RUN_TIMEOUT_SECONDS:-900}" "${AS_AGENT[@]}" opencode run "$MESSAGE_THIS_RUN" \
-            -s "$SESSION" -m "$OPENCODE_MODEL" --format json > "$RUN_FILE"
+            -s "$SESSION" -m "$OPENCODE_MODEL" --format json | tee "$RUN_FILE"
     else
         timeout "${AGENT_RUN_TIMEOUT_SECONDS:-900}" "${AS_AGENT[@]}" opencode run "$MESSAGE_THIS_RUN" \
-            -m "$OPENCODE_MODEL" --format json > "$RUN_FILE"
+            -m "$OPENCODE_MODEL" --format json | tee "$RUN_FILE"
     fi
-    AGENT_EXIT=$?
+    AGENT_EXIT=${PIPESTATUS[0]}
     set -e
-    cat "$RUN_FILE"
     cat "$RUN_FILE" >> "$RESULT"
 
     FOUND_SESSION=$(grep -m1 -o '"sessionID":"[^"]*"' "$RUN_FILE" | head -1 | cut -d'"' -f4 || true)
