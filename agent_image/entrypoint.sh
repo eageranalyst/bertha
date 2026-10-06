@@ -217,6 +217,25 @@ Task:
 $PROMPT"
 fi
 
+# The agent runs as the unprivileged "node" user, with the GitHub token
+# removed from its environment. It never needs the token: this script does
+# the clone, push and PR as root, outside the agent. As a different user it
+# also can't read this script's environment through /proc.
+chown -R node:node /data
+AS_AGENT=(setpriv --reuid=node --regid=node --init-groups env -u GITHUB_TOKEN -u GH_TOKEN)
+
+# OpenCode settings for an unattended, network-restricted run:
+# - project config off: a cloned repo's own opencode.json must not be able to
+#   loosen the permissions above;
+# - no model catalogue fetch, update check or language-server download: the
+#   egress proxy refuses them, and waiting on them makes each run slower;
+# - no session sharing.
+export OPENCODE_DISABLE_PROJECT_CONFIG=1
+export OPENCODE_DISABLE_MODELS_FETCH=1
+export OPENCODE_DISABLE_AUTOUPDATE=1
+export OPENCODE_DISABLE_LSP_DOWNLOAD=1
+export OPENCODE_DISABLE_SHARE=1
+
 # A turn runs the agent until it answers. A run can end early (a rejected
 # command stops OpenCode), so it is resumed in the same session, within the
 # limits from the Settings screen: continuations, the token budget, a
@@ -237,10 +256,10 @@ while true; do
     : > "$RUN_FILE"
     set +e
     if [ -n "$SESSION" ]; then
-        timeout "${AGENT_RUN_TIMEOUT_SECONDS:-900}" opencode run "$MESSAGE_THIS_RUN" \
+        timeout "${AGENT_RUN_TIMEOUT_SECONDS:-900}" "${AS_AGENT[@]}" opencode run "$MESSAGE_THIS_RUN" \
             -s "$SESSION" -m "$OPENCODE_MODEL" --format json > "$RUN_FILE"
     else
-        timeout "${AGENT_RUN_TIMEOUT_SECONDS:-900}" opencode run "$MESSAGE_THIS_RUN" \
+        timeout "${AGENT_RUN_TIMEOUT_SECONDS:-900}" "${AS_AGENT[@]}" opencode run "$MESSAGE_THIS_RUN" \
             -m "$OPENCODE_MODEL" --format json > "$RUN_FILE"
     fi
     AGENT_EXIT=$?

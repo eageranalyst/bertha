@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -9,6 +10,15 @@ load_dotenv()
 
 def _split_repos(value: str) -> list[str]:
     return [r.strip() for r in value.split(",") if r.strip()]
+
+
+# Hosts agent containers may reach through the egress proxy: GitHub (clone,
+# push, PRs) and the npm and PyPI registries (installing dependencies). Add
+# more with FACTORY_EGRESS_ALLOW; ".example.com" also allows subdomains.
+DEFAULT_EGRESS_ALLOW = [
+    "github.com", "api.github.com", "codeload.github.com", ".githubusercontent.com",
+    "registry.npmjs.org", "pypi.org", "files.pythonhosted.org",
+]
 
 
 @dataclass(frozen=True)
@@ -31,10 +41,20 @@ class Settings:
     default_model_key: str
     # Per-turn model routing (app/routing.py). Off makes every session use its own model.
     routing_enabled: bool
+    # Agent and wiki containers run on an internal network whose only exit is
+    # the egress proxy (app/egress_proxy.py). Off restores open networking.
+    egress_isolation: bool
+    egress_allow: list[str]
     host: str
     port: int
     bot_name: str
     bot_email: str
+
+    @property
+    def model_host_port(self) -> tuple[str, int]:
+        """Host and port of the model server as a container sees it."""
+        parsed = urlparse(self.local_model_base_url)
+        return parsed.hostname or "host.docker.internal", parsed.port or 80
 
     @property
     def opencode_model_ref(self) -> str:
@@ -77,6 +97,8 @@ def get_settings() -> Settings:
         wiki_image_tag=os.environ.get("FACTORY_WIKI_IMAGE_TAG", "factory-wiki:latest"),
         default_model_key=os.environ.get("FACTORY_DEFAULT_MODEL", ""),
         routing_enabled=os.environ.get("FACTORY_ROUTING", "1").lower() not in ("0", "false", "off"),
+        egress_isolation=os.environ.get("FACTORY_EGRESS", "isolated").lower() != "open",
+        egress_allow=DEFAULT_EGRESS_ALLOW + _split_repos(os.environ.get("FACTORY_EGRESS_ALLOW", "")),
         host=os.environ.get("FACTORY_HOST", "127.0.0.1"),
         port=int(os.environ.get("FACTORY_PORT", "8787")),
         bot_name=os.environ.get("FACTORY_BOT_NAME", "factory-agent"),

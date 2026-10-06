@@ -5,6 +5,7 @@ import type {
   RepoMetadata,
   RepoSkill,
   Repo,
+  SecurityStatus,
   Session,
   SessionType,
   Skill,
@@ -94,6 +95,7 @@ export const api = {
       body: JSON.stringify({ force }),
     }),
 
+  getSecurity: () => request<SecurityStatus>("/api/security"),
   listSettings: () => request<AgentSetting[]>("/api/settings"),
   updateSettings: (values: Record<string, number>) =>
     request<AgentSetting[]>("/api/settings", { method: "PUT", body: JSON.stringify(values) }),

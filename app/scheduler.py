@@ -353,7 +353,11 @@ class Scheduler:
             ),
         }
         try:
-            container_id = self.runner.start_turn(session["id"], store.workspace_of(session), env)
+            container_id = self.runner.start_turn(
+                session["id"], store.workspace_of(session), env,
+                limits=agent_settings.container_limits(),
+                model_port=self.settings.model_host_port[1],
+            )
         except Exception:
             logger.exception("failed starting container for session %s", session["id"])
             store.update_session(session["id"], status="failed", attention="failed")

@@ -21,7 +21,7 @@ from pathlib import Path
 
 from docker.errors import NotFound
 
-from . import store
+from . import agent_settings, store
 from .config import Settings
 from .docker_runner import DockerRunner
 
@@ -102,6 +102,8 @@ class WikiIndexer:
                     "LOCAL_MODEL_ID": self.settings.local_model_id,
                 },
                 app_dir=APP_DIR,
+                limits=agent_settings.container_limits(),
+                model_port=self.settings.model_host_port[1],
             )
             self._follow(repo, container_id)
 

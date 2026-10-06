@@ -70,7 +70,38 @@ SETTINGS: tuple[Setting, ...] = (
         maximum=1_048_576,
         env=None,
     ),
+    Setting(
+        key="container_memory_gb",
+        label="Container memory (GB)",
+        help="Memory limit for each agent and wiki build container. A container that exceeds it is stopped.",
+        default=4,
+        minimum=1,
+        maximum=64,
+        env=None,
+    ),
+    Setting(
+        key="container_cpus",
+        label="Container CPUs",
+        help="CPU cores each agent and wiki build container may use.",
+        default=2,
+        minimum=1,
+        maximum=32,
+        env=None,
+    ),
 )
+
+# Processes per container: enough for builds and test runners, but stops a fork bomb.
+CONTAINER_PIDS_LIMIT = 1024
+
+
+def container_limits() -> dict[str, int]:
+    """docker-py keyword arguments limiting one container's resources."""
+    values = current()
+    return {
+        "mem_limit": values["container_memory_gb"] * 1024**3,
+        "nano_cpus": values["container_cpus"] * 1_000_000_000,
+        "pids_limit": CONTAINER_PIDS_LIMIT,
+    }
 BY_KEY = {s.key: s for s in SETTINGS}
 
 

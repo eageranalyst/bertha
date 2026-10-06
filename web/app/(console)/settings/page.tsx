@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { AgentSetting } from "@/lib/types";
+import { SecurityPanel } from "@/components/SecurityPanel";
 
 function errorText(err: unknown) {
   return err instanceof Error ? err.message : String(err);
@@ -103,6 +104,13 @@ export default function SettingsPage() {
         </button>
         {saved && !dirty && <span className="skill-form-hint">Saved.</span>}
       </div>
+
+      <h2 className="wiki-title settings-section">Security</h2>
+      <p className="skill-hint">
+        How well agent containers are contained. Agents run code from the repos they work on, so
+        the boundary around them matters more than which commands they&apos;re allowed.
+      </p>
+      <SecurityPanel />
     </div>
   );
 }

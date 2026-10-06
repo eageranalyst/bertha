@@ -9,6 +9,7 @@ reachable, so GitHub is only ever polled, never notifies us.
 import logging
 from typing import Any
 
+import httpx
 from github import Github
 
 logger = logging.getLogger("factory.github")
@@ -17,6 +18,7 @@ logger = logging.getLogger("factory.github")
 class GitHubClient:
     def __init__(self, token: str, bot_username: str):
         self._gh = Github(token)
+        self._token = token
         self.bot_username = bot_username
 
     def find_assigned_issues(self, repo_full_name: str) -> list[dict[str, Any]]:
@@ -29,10 +31,38 @@ class GitHubClient:
             if i.pull_request is None
         ]
 
+    def token_info(self) -> dict[str, Any]:
+        """What kind of token the bot uses and how much it can do. Classic
+        tokens report their scopes; fine-grained ones are limited to the repos
+        and permissions chosen when they were made, which is what you want.
+        """
+        response = httpx.get(
+            "https://api.github.com/user",
+            headers={"Authorization": f"Bearer {self._token}", "Accept": "application/vnd.github+json"},
+            timeout=10,
+        )
+        response.raise_for_status()
+        scopes_header = response.headers.get("X-OAuth-Scopes")
+        fine_grained = self._token.startswith("github_pat_")
+        scopes = [s.strip() for s in scopes_header.split(",") if s.strip()] if scopes_header else []
+        broad = {"repo", "admin:org", "delete_repo", "workflow", "admin:repo_hook", "write:packages"}
+        return {
+            "login": response.json().get("login"),
+            "kind": "fine-grained" if fine_grained else "classic",
+            "scopes": scopes,
+            "broad_scopes": sorted(broad & set(scopes)),
+            "expires": response.headers.get("github-authentication-token-expiration"),
+        }
+
     def repo_info(self, repo_full_name: str) -> dict[str, Any]:
         """The repo's own metadata as GitHub reports it, for the Repos tab."""
         repo = self._gh.get_repo(repo_full_name)
+        try:
+            default_branch_protected: bool | None = repo.get_branch(repo.default_branch).protected
+        except Exception:
+            default_branch_protected = None
         return {
+            "default_branch_protected": default_branch_protected,
             "description": repo.description,
             "default_branch": repo.default_branch,
             "language": repo.language,

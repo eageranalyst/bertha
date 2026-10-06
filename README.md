@@ -170,6 +170,28 @@ created, last built and last changed) and `wiki_pages` (one row per
 page). A build that's interrupted by an API restart is marked failed
 on the next start.
 
+## Containment
+
+Agents run code from the repos they work on, so the boundary around them
+does most of the work, the way hosted agents do it:
+
+- **Network.** Agent and wiki containers run on an internal Docker network
+  (`factory-agents`) with no route to this machine or the internet. Their
+  only exit is the `factory-egress` proxy (`app/egress_proxy.py`), which
+  forwards to the model server and allows HTTPS to GitHub and the npm and
+  PyPI registries. Bertha's own API is unreachable from a container. Add
+  hosts with `FACTORY_EGRESS_ALLOW`; `FACTORY_EGRESS=open` turns isolation
+  off.
+- **Credentials.** The agent runs as `node`, without `GITHUB_TOKEN` in its
+  environment. Cloning, pushing and opening the PR happen in the entrypoint,
+  outside the agent. A repo's own `opencode.json` is ignored, so it can't
+  loosen the agent's permissions.
+- **Resources.** Each container gets memory and CPU limits (Settings) and a
+  process cap.
+- **GitHub.** Use a fine-grained token limited to the registered repos
+  (Contents and Pull requests: read and write), and protect each repo's
+  default branch so agent PRs need review. Settings → Security shows both.
+
 ## Models
 
 The model server can host several models. Bertha reads its model list

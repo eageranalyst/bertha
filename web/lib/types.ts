@@ -39,6 +39,17 @@ export interface Session {
   updated_at: number;
 }
 
+/** How well agent containers are contained, from /api/security. */
+export interface SecurityStatus {
+  egress_isolation: boolean;
+  egress_allow: string[];
+  agent_user: string;
+  container_limits: { memory_gb: number; cpus: number; pids: number };
+  token: { kind: "classic" | "fine-grained"; scopes: string[]; broad_scopes: string[]; expires: string | null } | null;
+  token_error: string | null;
+  repos: { full_name: string; default_branch_protected: boolean | null }[];
+}
+
 /** One of the limits on a code turn, from the Settings screen. */
 export interface AgentSetting {
   key: string;

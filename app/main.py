@@ -82,9 +82,14 @@ async def lifespan(app: FastAPI):
     store.fail_interrupted_wiki_indexes()
     for repo in settings.repos:
         store.create_repo(repo)
-    runner = DockerRunner(settings.agent_image_tag, settings.wiki_image_tag)
+    runner = DockerRunner(settings.agent_image_tag, settings.wiki_image_tag, isolate=settings.egress_isolation)
     runner.ensure_image(AGENT_IMAGE_DIR)
     runner.ensure_image(WIKI_IMAGE_DIR, tag=settings.wiki_image_tag)
+    if settings.egress_isolation:
+        model_host, model_port = settings.model_host_port
+        runner.ensure_egress(BASE_DIR / "app", settings.egress_allow, model_host, model_port)
+    else:
+        logger.warning("FACTORY_EGRESS=open: agent containers can reach the host and the internet")
     gh = GitHubClient(settings.github_token, settings.github_bot_username)
     scheduler = Scheduler(settings, runner, gh)
     fast_thread = TickThread("fast", scheduler.tick_fast, settings.fast_poll_interval_seconds)
@@ -462,6 +467,38 @@ class ModelIn(BaseModel):
     tier: str | None = None
     description: str | None = None
     enabled: bool | None = None
+
+
+@app.get("/api/security")
+def api_security():
+    """How well agent containers are contained, for the Settings screen."""
+    settings = get_settings()
+    gh: GitHubClient = _state["gh"]  # type: ignore[assignment]
+    try:
+        token, token_error = gh.token_info(), None
+    except Exception as exc:
+        token, token_error = None, str(exc) or type(exc).__name__
+    repos = []
+    for repo in store.list_repos():
+        try:
+            protected = gh.repo_info(repo["full_name"])["default_branch_protected"]
+        except Exception:
+            protected = None
+        repos.append({"full_name": repo["full_name"], "default_branch_protected": protected})
+    limits = agent_settings.current()
+    return {
+        "egress_isolation": settings.egress_isolation,
+        "egress_allow": settings.egress_allow,
+        "agent_user": "node (uid 1000), without the GitHub token",
+        "container_limits": {
+            "memory_gb": limits["container_memory_gb"],
+            "cpus": limits["container_cpus"],
+            "pids": agent_settings.CONTAINER_PIDS_LIMIT,
+        },
+        "token": token,
+        "token_error": token_error,
+        "repos": repos,
+    }
 
 
 @app.get("/api/settings")

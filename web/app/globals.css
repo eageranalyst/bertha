@@ -493,6 +493,13 @@ a:hover { text-decoration: underline; }
 .settings-range { font-size: 11.5px; color: var(--text-faint); }
 .settings-row input { width: 150px; text-align: right; }
 .settings-actions { display: flex; gap: 8px; align-items: center; }
+.settings-section { margin-top: 28px; }
+.security-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; border-bottom: 1px solid var(--border-soft); }
+.security-row:last-child { border-bottom: none; }
+.security-mark { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+.security-row.ok .security-mark { background: #16301f; color: var(--ok); }
+.security-row.warn .security-mark { background: var(--danger-soft); color: var(--danger); }
+.security-row.unknown .security-mark { background: #1c2230; color: var(--text-faint); }
 
 /* -- session model picker ------------------------------------------ */
 
