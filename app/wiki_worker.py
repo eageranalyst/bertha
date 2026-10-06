@@ -19,13 +19,25 @@ keeps the pages it finished.
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 from .wiki_build import build
 
 
+INDEX_PATH = Path("/data/code_index.json")
+
+
 def _emit(prefix: str, payload: dict[str, Any]) -> None:
     print(prefix + json.dumps(payload), flush=True)
+
+
+def _write_index(index: dict[str, Any]) -> None:
+    # Embeddings are far too big for log lines, so the index goes to a file the
+    # API reads from the stopped container (DockerRunner.read_file).
+    INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
+    INDEX_PATH.write_text(json.dumps(index))
+    print(f"FACTORY_WIKI_INDEX={len(index['chunks'])}", flush=True)
 
 
 def main() -> int:
@@ -42,6 +54,9 @@ def main() -> int:
             progress=lambda message: print(f"FACTORY_WIKI_PROGRESS={message}", flush=True),
             emit_meta=lambda meta: _emit("FACTORY_WIKI_META=", meta),
             emit_page=lambda page: _emit("FACTORY_WIKI_PAGE=", page),
+            write_index=_write_index,
+            embedding_model_id=os.environ.get("EMBEDDING_MODEL_ID", ""),
+            has_code_index=os.environ.get("HAS_CODE_INDEX") == "1",
         )
     except Exception as exc:
         message = (str(exc) or type(exc).__name__).replace("\n", " ")

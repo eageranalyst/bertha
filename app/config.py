@@ -39,6 +39,9 @@ class Settings:
     wiki_image_tag: str
     # Registered model key to use when a session doesn't pick one.
     default_model_key: str
+    # Embeds code chunks and tasks for code search (app/code_index.py). Empty
+    # turns code search off; the repo map is still built.
+    embedding_model_id: str
     # Per-turn model routing (app/routing.py). Off makes every session use its own model.
     routing_enabled: bool
     # Agent and wiki containers run on an internal network whose only exit is
@@ -96,6 +99,7 @@ def get_settings() -> Settings:
         agent_image_tag=os.environ.get("FACTORY_AGENT_IMAGE_TAG", "factory-agent:latest"),
         wiki_image_tag=os.environ.get("FACTORY_WIKI_IMAGE_TAG", "factory-wiki:latest"),
         default_model_key=os.environ.get("FACTORY_DEFAULT_MODEL", ""),
+        embedding_model_id=os.environ.get("FACTORY_EMBEDDING_MODEL", "text-embedding-nomic-embed-text-v1.5"),
         routing_enabled=os.environ.get("FACTORY_ROUTING", "1").lower() not in ("0", "false", "off"),
         egress_isolation=os.environ.get("FACTORY_EGRESS", "isolated").lower() != "open",
         egress_allow=DEFAULT_EGRESS_ALLOW + _split_repos(os.environ.get("FACTORY_EGRESS_ALLOW", "")),

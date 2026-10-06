@@ -71,6 +71,15 @@ SETTINGS: tuple[Setting, ...] = (
         env=None,
     ),
     Setting(
+        key="working_context",
+        label="Working context (tokens)",
+        help="The agent compacts its conversation when it reaches this size, rather than at the model's full context. Smaller keeps each step fast; too small loses detail. Capped at the model's loaded context.",
+        default=49_152,
+        minimum=16_384,
+        maximum=1_048_576,
+        env=None,
+    ),
+    Setting(
         key="container_memory_gb",
         label="Container memory (GB)",
         help="Memory limit for each agent and wiki build container. A container that exceeds it is stopped.",

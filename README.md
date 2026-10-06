@@ -170,6 +170,49 @@ created, last built and last changed) and `wiki_pages` (one row per
 page). A build that's interrupted by an API restart is marked failed
 on the next start.
 
+## Agent performance
+
+What the agent gets, besides the task:
+
+- **Working practices** (`agent_image/WORKING.md`) and **repo context**: the
+  wiki's conventions, overview, architecture, testing and getting-started
+  pages, plus a **repo map** of each source file and its top-level
+  definitions.
+- **Likely relevant code**: the wiki build also indexes the repo's code
+  (`app/code_index.py`), embedding chunks with the model server's embedding
+  model (`FACTORY_EMBEDDING_MODEL`, default `nomic-embed-text`). Each turn,
+  the task is matched against it, by meaning and by file and symbol names,
+  and the best matches go in the first message. An existing wiki gets its
+  index on the next Re-index without rewriting its pages.
+- **Dependencies installed** once per workspace (npm lockfiles, Python
+  requirements), so the agent can run tests.
+
+Keeping it fast: OpenCode compacts its conversation at the **Working
+context** setting (48k by default) rather than the model's full context,
+and prunes old tool output. Tool output is capped per call.
+
+In LM Studio, mixture-of-experts models (like Qwen 35B-A3B) are much faster
+per token than dense ones of similar quality. Load models with the context
+you need rather than the maximum, and turn on flash attention and KV-cache
+quantization if your version has them; both cut memory and speed up long
+prompts.
+
+### Evals
+
+`evals/run.py` runs the agent on the tasks in `evals/tasks.json` as dry-run
+sessions (they commit in the workspace but never push or open a PR), checks
+the results, and writes them to `evals/results/`. Run it before and after a
+change to see whether it helped:
+
+```bash
+python evals/run.py                          # every task, with routing
+python evals/run.py --model qwen3.6-35b-a3b  # pin a model
+```
+
+Add tasks from real sessions: what was asked, and a check that only passes
+when it was done (a file changed, a reply mentions the right module, or a
+test command passes).
+
 ## Containment
 
 Agents run code from the repos they work on, so the boundary around them

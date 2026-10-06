@@ -32,12 +32,25 @@ otherwise ask.
   failing, say so rather than fixing unrelated things.
 - Don't claim something works unless you ran something that showed it.
 
+## When the task doesn't match the code
+
+- Start from the "Likely relevant code" section of the task, if there is
+  one: it's what a search of the repository found for this request. Check it
+  before searching further.
+- If, after a short look, the code contradicts the task (what it describes
+  doesn't exist, or works differently), stop. Don't guess at a fix or keep
+  searching. Reply with what you found, where, and the question that would
+  settle it. The person will answer in their next message.
+- Only make a change when you can say which file and which behaviour it
+  fixes.
+
 ## When things go wrong
 
 - If a command is rejected or fails, don't stop. Try a simpler command or a
   different tool, and carry on.
-- If the task is ambiguous, pick the most reasonable reading, do that, and
-  say which reading you chose.
+- If the task is ambiguous but the code makes one reading clearly most
+  likely, do that and say which reading you chose. If it doesn't, ask (see
+  above).
 - If part of the task can't be done, do the rest and explain what's missing
   and why.
 

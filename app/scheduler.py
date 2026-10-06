@@ -43,7 +43,7 @@ from typing import Any
 
 import httpx
 
-from . import agent_settings
+from . import agent_settings, code_index
 from . import models as model_registry
 from . import store
 from .routing import route as route_turn
@@ -59,6 +59,50 @@ TERMINAL_STATUSES = {"closed", "archived"}
 # the most text that adds to every turn's prompt.
 CONTEXT_PAGES = ("conventions", "overview", "architecture", "testing", "getting-started")
 CONTEXT_MAX_CHARS = 12_000
+
+
+_chunk_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+
+
+def relevant_code(settings: Settings, repo: str, task: str) -> str:
+    """The repo's code chunks closest to the task, as markdown for the agent's
+    first message. Empty when there's no index, no embedding model, or the
+    model server can't embed the task; the turn goes ahead without it.
+    """
+    code_map = store.get_code_map(repo)
+    if not code_map or not task.strip():
+        return ""
+    terms = code_index.query_terms(task)
+    named = code_index.matching_files(code_map["map"], terms)
+    files_section = (
+        "Files whose names or definitions match the task:\n\n" + "\n".join(f"- {line}" for line in named) + "\n\n"
+        if named else ""
+    )
+    if not code_map["chunk_count"] or not settings.embedding_model_id:
+        return files_section.strip()
+    cached = _chunk_cache.get(repo)
+    if cached is None or cached[0] != code_map["updated_at"]:
+        cached = (code_map["updated_at"], store.load_code_chunks(repo))
+        _chunk_cache[repo] = cached
+    try:
+        [query] = code_index.embed(
+            settings.local_model_host_base_url, settings.embedding_model_id,
+            [f"search_query: {task[:2000]}"], timeout=30,
+        )
+    except Exception as exc:
+        logger.warning("code search unavailable for %s: %s", repo, exc)
+        return files_section.strip()
+    return files_section + code_index.format_relevant(
+        code_index.top_chunks(query, cached[1], k=8, terms=terms)
+    )
+
+
+def working_context(model: dict[str, Any]) -> int:
+    """The context size OpenCode treats as full for this model, so it compacts
+    there: the Working context setting, capped at what the model has loaded.
+    """
+    target = agent_settings.current()["working_context"]
+    return min(target, model["context_length"]) if model.get("context_length") else target
 
 
 def repo_context(repo: str) -> str:
@@ -82,6 +126,12 @@ def repo_context(repo: str) -> str:
         used += len(section)
         if used >= CONTEXT_MAX_CHARS:
             break
+    code_map = store.get_code_map(repo)
+    if code_map and code_map["map"]:
+        parts.append(
+            "## Repository map\n\nEach source file with its top-level definitions, "
+            f"as of commit {code_map['commit_sha'][:7]}.\n\n```\n{code_map['map']}\n```\n"
+        )
     return "\n".join(parts) if len(parts) > 4 else ""
 BUSY_OR_QUEUED = {"running", "queued"}
 
@@ -324,17 +374,21 @@ class Scheduler:
             "OPENCODE_MODEL": opencode_model,
             # The repo's wiki, loaded as standing instructions (like CLAUDE.md).
             "REPO_CONTEXT": repo_context(session["repo"]) if session["repo"] else "",
+            # Code a search of the repo found for this task; added to the first message.
+            "RELEVANT_CODE": relevant_code(self.settings, session["repo"], prompt) if session["repo"] else "",
             # How far this turn may run: steps, continuations, timeout, token budget.
             **agent_settings.env_for_turn(),
             # Every enabled model, so OpenCode knows the full set it can switch to.
             "MODELS_JSON": json.dumps([
-                {"key": m["key"], "model_id": m["model_id"]}
+                {"key": m["key"], "model_id": m["model_id"],
+                 "context": working_context(m)}
                 for m in store.list_models() if m["enabled"]
             ]),
             "LOCAL_MODEL_PROVIDER": self.settings.local_model_provider,
             "LOCAL_MODEL_BASE_URL": self.settings.local_model_base_url,
             "LOCAL_MODEL_KEY": self.settings.local_model_key,
             "LOCAL_MODEL_ID": self.settings.local_model_id,
+            "NO_PUSH": "1" if session.get("dry_run") else "",
             "BOT_NAME": self.settings.bot_name,
             "BOT_EMAIL": self.settings.bot_email,
             # Skills enabled for this repo, written into /data/skills by the entrypoint.

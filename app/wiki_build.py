@@ -20,7 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .wiki_scan import Scan, read_excerpt, scan_repo
+from .code_index import build_chunks, embed_chunks
+from .wiki_scan import Scan, read_excerpt, repo_map, scan_repo
 
 MAX_EVIDENCE_FILES = 12
 EVIDENCE_BUDGET_CHARS = 24_000
@@ -215,6 +216,9 @@ def build(
     progress: Callable[[str], None],
     emit_meta: Callable[[dict[str, Any]], None],
     emit_page: Callable[[dict[str, Any]], None],
+    write_index: Callable[[dict[str, Any]], None],
+    embedding_model_id: str = "",
+    has_code_index: bool = False,
 ) -> None:
     """Clones the repo and writes its wiki, reporting as it goes.
 
@@ -229,7 +233,8 @@ def build(
         checkout = workdir / "repo"
         _clone(repo, checkout, token, git_base)
         sha = _head_sha(checkout)
-        if known_sha == sha and not force:
+        unchanged = known_sha == sha and not force
+        if unchanged and has_code_index:
             emit_meta({"unchanged": True, "commit_sha": sha, "slugs": []})
             return
 
@@ -237,6 +242,12 @@ def build(
         scan = scan_repo(checkout)
         if scan.file_count == 0:
             raise RuntimeError("the repository has no files to index")
+
+        _build_code_index(checkout, scan, sha, model_base_url, embedding_model_id, progress, write_index)
+        if unchanged:
+            # The pages are current; only the code index was missing.
+            emit_meta({"unchanged": True, "commit_sha": sha, "slugs": []})
+            return
 
         specs = [spec for spec in PAGES if spec.applies(scan)]
         files = set(scan.files)
@@ -266,6 +277,26 @@ def build(
             })
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _build_code_index(
+    checkout: Path, scan: Scan, sha: str, model_base_url: str, embedding_model_id: str,
+    progress: Callable[[str], None], write_index: Callable[[dict[str, Any]], None],
+) -> None:
+    """The repo map, and the code chunks with their embeddings, for agents.
+    Without an embedding model, or if embedding fails, only the map is kept.
+    """
+    progress("Mapping the code")
+    index: dict[str, Any] = {"commit_sha": sha, "map": repo_map(checkout, scan), "chunks": [], "error": None}
+    if embedding_model_id:
+        chunks = build_chunks(checkout, scan)
+        progress(f"Indexing {len(chunks)} code chunks for search")
+        try:
+            embed_chunks(model_base_url, embedding_model_id, chunks)
+            index["chunks"] = chunks
+        except Exception as exc:
+            index["error"] = f"embedding failed: {exc}"
+    write_index(index)
 
 
 # -- git ----------------------------------------------------------------

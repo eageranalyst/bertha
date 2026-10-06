@@ -139,6 +139,8 @@ class NewSessionIn(BaseModel):
     prompt: str | None = None
     # A registered model key. Omitted, the session gets the default.
     model: str | None = None
+    # Eval runs: commit in the workspace, but never push or open a PR.
+    dry_run: bool = False
 
 
 class RepoIn(BaseModel):
@@ -304,6 +306,7 @@ def api_new_session(body: NewSessionIn):
         model=model_key,
         # A model the user picked stays on this session; the default is routed per turn.
         model_pinned=bool(body.model),
+        dry_run=body.dry_run,
     )
     store.append_log(session_id, "system", f"Started a new {body.session_type} session")
     if body.prompt:

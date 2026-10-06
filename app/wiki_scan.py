@@ -191,6 +191,44 @@ def scan_repo(root: Path) -> Scan:
     return scan
 
 
+# Top-level definitions worth listing in a repo map, by file type. Only
+# unindented lines, so nested functions and methods stay out.
+SYMBOL_PATTERNS = {
+    ".py": re.compile(r"^(?:async\s+def|def|class)\s+(\w+)", re.M),
+    ".ts": re.compile(r"^export\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|interface|type|enum)\s+(\w+)", re.M),
+    ".go": re.compile(r"^(?:func\s+(?:\([^)]*\)\s+)?|type\s+)(\w+)", re.M),
+    ".rb": re.compile(r"^(?:class|module|def)\s+([\w:.]+)", re.M),
+    ".rs": re.compile(r"^pub\s+(?:fn|struct|enum|trait)\s+(\w+)", re.M),
+    ".java": re.compile(r"^public\s+(?:final\s+|abstract\s+)?(?:class|interface|enum|record)\s+(\w+)", re.M),
+}
+for _ext in (".tsx", ".js", ".jsx", ".mjs"):
+    SYMBOL_PATTERNS[_ext] = SYMBOL_PATTERNS[".ts"]
+MAP_FILE_LIMIT = 400
+MAP_MAX_CHARS = 10_000
+
+
+def repo_map(root: Path, scan: Scan) -> str:
+    """One line per source file with its top-level definitions, so the agent
+    can see where things live without searching. Tests come last; the map is
+    capped so it stays a small part of the prompt.
+    """
+    tests = set(scan.test_files)
+    sources = [f for f in scan.files if PurePosixPath(f).suffix.lower() in SYMBOL_PATTERNS]
+    sources.sort(key=lambda f: (f in tests, f.count("/"), f))
+    lines: list[str] = []
+    used = 0
+    for rel in sources[:MAP_FILE_LIMIT]:
+        pattern = SYMBOL_PATTERNS[PurePosixPath(rel).suffix.lower()]
+        names = list(dict.fromkeys(pattern.findall(read_excerpt(root / rel, 60_000))))[:12]
+        line = f"{rel}: {', '.join(names)}" if names else rel
+        if used + len(line) > MAP_MAX_CHARS:
+            lines.append(f"… and {len(sources) - len(lines)} more files")
+            break
+        lines.append(line)
+        used += len(line) + 1
+    return "\n".join(lines)
+
+
 def read_excerpt(path: Path, max_chars: int) -> str:
     """The first `max_chars` characters of a text file, or "" if it
     can't be read or looks binary.

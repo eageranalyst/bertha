@@ -58,7 +58,13 @@ for skill in json.load(sys.stdin):
 MODELS_BLOCK=$(printf '%s' "${MODELS_JSON:-[]}" | python3 -c '
 import json, os, sys
 models = json.load(sys.stdin) or [{"key": os.environ["LOCAL_MODEL_KEY"], "model_id": os.environ["LOCAL_MODEL_ID"]}]
-print(json.dumps({m["key"]: {"id": m["model_id"], "name": m["model_id"]} for m in models}))
+def entry(m):
+    e = {"id": m["model_id"], "name": m["model_id"]}
+    if m.get("context"):
+        # OpenCode compacts when this fills, so a working size keeps steps fast.
+        e["limit"] = {"context": int(m["context"]), "output": 8192}
+    return e
+print(json.dumps({m["key"]: entry(m) for m in models}))
 ')
 
 # What Bertha knows about this repo (its wiki), loaded with the working
@@ -81,7 +87,7 @@ cat > "$HOME/.config/opencode/opencode.jsonc" <<EOF
   "agent": { "build": { "steps": ${AGENT_STEPS:-25} } },
   "tool_output": { "max_lines": 200, "max_bytes": 8192 },
   "instructions": ["/opt/factory/WORKING.md", "${HOME}/factory/repo-context.md"],
-  "compaction": { "auto": true },
+  "compaction": { "auto": true, "prune": true },
   "permission": {
     "edit": "allow",
     "webfetch": "deny",
@@ -157,6 +163,16 @@ if [ -n "$REPO" ]; then
 
 Task:
 $PROMPT"
+    if [ -n "${RELEVANT_CODE:-}" ]; then
+        MESSAGE="$MESSAGE
+
+## Likely relevant code
+
+A search of the repository found these for the task. It can be wrong or
+out of date, so check it, but start here before searching.
+
+$RELEVANT_CODE"
+    fi
 fi
 
 # The agent runs as the unprivileged "node" user, with the GitHub token
@@ -177,6 +193,40 @@ export OPENCODE_DISABLE_MODELS_FETCH=1
 export OPENCODE_DISABLE_AUTOUPDATE=1
 export OPENCODE_DISABLE_LSP_DOWNLOAD=1
 export OPENCODE_DISABLE_SHARE=1
+
+# Dependencies, so the agent can run the project's tests and build. Installed
+# once per workspace and again only when a lockfile or requirements file
+# changes. They run as the agent user without the token: install scripts are
+# code from the repo too. A failed install is reported, not fatal.
+install_dependencies() {
+    cd /data/repo
+    local manifests key
+    manifests=$(ls package-lock.json ./*/package-lock.json requirements.txt ./*/requirements.txt 2>/dev/null || true)
+    [ -z "$manifests" ] && return 0
+    key=$(cat $manifests | sha256sum | cut -c1-16)
+    if [ "$(cat /data/.deps-key 2>/dev/null)" = "$key" ]; then
+        return 0
+    fi
+    for lock in $(ls package-lock.json ./*/package-lock.json 2>/dev/null || true); do
+        dir=$(dirname "$lock")
+        echo "=== Installing npm dependencies in ${dir} ==="
+        (cd "/data/repo/$dir" && timeout 900 "${AS_AGENT[@]}" npm ci --no-audit --no-fund --loglevel=error) \
+            || echo "FACTORY_DEPS_FAILED=npm ci in ${dir}"
+    done
+    for req in $(ls requirements.txt ./*/requirements.txt 2>/dev/null || true); do
+        echo "=== Installing Python dependencies from ${req} ==="
+        [ -x /data/venv/bin/pip ] || "${AS_AGENT[@]}" python3 -m venv /data/venv
+        timeout 900 "${AS_AGENT[@]}" /data/venv/bin/pip install --quiet -r "/data/repo/$req" \
+            || echo "FACTORY_DEPS_FAILED=pip install -r ${req}"
+    done
+    echo "$key" > /data/.deps-key
+}
+if [ -n "$REPO" ]; then
+    install_dependencies
+    cd /data/repo
+fi
+# The agent finds the workspace's Python environment first, if there is one.
+export PATH="/data/venv/bin:$PATH"
 
 # A turn runs the agent until it answers. A run can end early (a rejected
 # command stops OpenCode), so it is resumed in the same session, within the
@@ -307,11 +357,14 @@ PY
     AHEAD=$(git rev-list --count "origin/HEAD..HEAD" 2>/dev/null || echo 0)
     if [ "$AHEAD" -eq 0 ]; then
         echo "FACTORY_NO_CHANGES=1"
+    elif [ -n "${NO_PUSH:-}" ]; then
+        # An eval run: the commit stays in the workspace for checking.
+        echo "FACTORY_DRY_RUN=1"
     else
         git push origin "$BRANCH_NAME"
     fi
 
-    if [ "$AHEAD" -gt 0 ] && { [ -z "${PR_NUMBER:-}" ] || [ "${PR_NUMBER}" = "0" ]; }; then
+    if [ -z "${NO_PUSH:-}" ] && [ "$AHEAD" -gt 0 ] && { [ -z "${PR_NUMBER:-}" ] || [ "${PR_NUMBER}" = "0" ]; }; then
         {
             if [ -s /data/pr_summary.md ]; then cat /data/pr_summary.md; echo; fi
             echo "${PR_BODY:-Automated changes from factory agent.}"

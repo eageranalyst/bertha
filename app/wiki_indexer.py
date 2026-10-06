@@ -22,6 +22,7 @@ from pathlib import Path
 from docker.errors import NotFound
 
 from . import agent_settings, store
+from . import models as model_registry
 from .config import Settings
 from .docker_runner import DockerRunner
 
@@ -35,7 +36,9 @@ PREFIXES = {
     "page": "FACTORY_WIKI_PAGE=",
     "error": "FACTORY_WIKI_ERROR=",
     "done": "FACTORY_WIKI_DONE=",
+    "index": "FACTORY_WIKI_INDEX=",
 }
+INDEX_PATH = "/data/code_index.json"
 
 
 @dataclass
@@ -45,6 +48,8 @@ class _BuildState:
     saved: int = 0
     error: str | None = None
     done: bool = False
+    index_ready: bool = False
+    index_saved: bool = False
 
 
 class WikiIndexer:
@@ -99,7 +104,9 @@ class WikiIndexer:
                     "FORCE": "1" if force else "",
                     "STORED_COMMITS": json.dumps(store.wiki_page_commits(repo)),
                     "LOCAL_MODEL_BASE_URL": self.settings.local_model_base_url,
-                    "LOCAL_MODEL_ID": self.settings.local_model_id,
+                    "LOCAL_MODEL_ID": self._model_id(),
+                    "EMBEDDING_MODEL_ID": self.settings.embedding_model_id,
+                    "HAS_CODE_INDEX": "1" if store.get_code_map(repo) else "",
                 },
                 app_dir=APP_DIR,
                 limits=agent_settings.container_limits(),
@@ -108,6 +115,15 @@ class WikiIndexer:
             self._follow(repo, container_id)
 
         self._guarded(repo, build)
+
+    def _model_id(self) -> str:
+        """The model to write pages with: the registry's default, which
+        prefers a loaded model, so the build doesn't fail on one that was
+        unloaded. Falls back to FACTORY_LOCAL_MODEL_ID with no registry.
+        """
+        model_registry.refresh_context(self.settings)
+        chosen = model_registry.default_model(self.settings)
+        return chosen["model_id"] if chosen else self.settings.local_model_id
 
     def _guarded(self, repo: str, work) -> None:
         try:
@@ -130,12 +146,26 @@ class WikiIndexer:
             for line in lines[state.seen:]:
                 self._apply(repo, line, state)
             state.seen = len(lines)
+            if state.index_ready and not state.index_saved:
+                # Code search is useful before the pages are written, so the
+                # index is saved as soon as the worker has it.
+                self._save_index(repo, container_id, state)
             if container.status == "exited":
                 exit_code = container.attrs["State"]["ExitCode"]
                 break
             time.sleep(POLL_SECONDS)
+        if state.index_ready and not state.index_saved:
+            self._save_index(repo, container_id, state)
         self._finish(repo, state, exit_code)
         self.runner.remove(container_id)
+
+    def _save_index(self, repo: str, container_id: str, state: "_BuildState") -> None:
+        """Stores the code index the worker wrote, whatever happens to the pages."""
+        state.index_saved = True
+        try:
+            store.save_code_index(repo, json.loads(self.runner.read_file(container_id, INDEX_PATH)))
+        except Exception:
+            logger.exception("could not save the code index for %s", repo)
 
     def _apply(self, repo: str, line: str, state: _BuildState) -> None:
         """Applies one line of the worker's output. Re-applying a line is
@@ -153,6 +183,8 @@ class WikiIndexer:
             state.error = line[len(PREFIXES["error"]):]
         elif line.startswith(PREFIXES["done"]):
             state.done = True
+        elif line.startswith(PREFIXES["index"]):
+            state.index_ready = True
 
     def _finish(self, repo: str, state: _BuildState, exit_code: int) -> None:
         if state.done and not state.error and exit_code == 0 and state.meta:

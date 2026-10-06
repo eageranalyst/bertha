@@ -114,6 +114,29 @@ CREATE TABLE IF NOT EXISTS models (
     updated_at REAL NOT NULL
 );
 
+-- Code search for agents (app/code_index.py), built with the wiki: the repo
+-- map, and source chunks with their embeddings (float32 bytes).
+CREATE TABLE IF NOT EXISTS code_maps (
+    repo TEXT PRIMARY KEY,
+    commit_sha TEXT NOT NULL,
+    map TEXT NOT NULL,
+    chunk_count INTEGER NOT NULL,
+    error TEXT,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS code_chunks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo TEXT NOT NULL,
+    path TEXT NOT NULL,
+    start_line INTEGER NOT NULL,
+    end_line INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    embedding BLOB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_code_chunks_repo ON code_chunks(repo);
+
 -- Settings the user can change in the UI, stored as text. Defaults and limits
 -- live in app/agent_settings.py.
 CREATE TABLE IF NOT EXISTS settings (
@@ -156,6 +179,9 @@ def _add_missing_session_columns(conn: sqlite3.Connection) -> None:
     if "model_pinned" not in cols:
         # 1 when the user chose the model; routing leaves a pinned session alone.
         conn.execute("ALTER TABLE sessions ADD COLUMN model_pinned INTEGER NOT NULL DEFAULT 0")
+    if "dry_run" not in cols:
+        # 1 for eval runs: the turn commits in its workspace but never pushes or opens a PR.
+        conn.execute("ALTER TABLE sessions ADD COLUMN dry_run INTEGER NOT NULL DEFAULT 0")
     if "last_turn_failed" not in cols:
         conn.execute("ALTER TABLE sessions ADD COLUMN last_turn_failed INTEGER NOT NULL DEFAULT 0")
     model_cols = {row[1] for row in conn.execute("PRAGMA table_info(models)").fetchall()}
@@ -257,6 +283,7 @@ def create_session(
     pending_message: str | None = None,
     model: str | None = None,
     model_pinned: bool = False,
+    dry_run: bool = False,
 ) -> int:
     now = time.time()
     # Nothing to run yet without an opening message -- sit idle (e.g. a
@@ -274,13 +301,13 @@ def create_session(
             """
             INSERT INTO sessions
                 (ref, session_type, repo, issue_number, title, branch_name,
-                 pending_message, status, workspace, model, model_pinned,
+                 pending_message, status, workspace, model, model_pinned, dry_run,
                  last_activity_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (ref, session_type, repo, issue_number, title, branch_name,
              pending_message, status, f"factory-ws-{ref}", model, 1 if model_pinned else 0,
-             now, now, now),
+             1 if dry_run else 0, now, now, now),
         )
         return cur.lastrowid
 
@@ -425,6 +452,8 @@ def delete_repo(repo_id: int) -> None:
         if row:
             conn.execute("DELETE FROM wiki_pages WHERE repo = ?", (row["full_name"],))
             conn.execute("DELETE FROM wiki_indexes WHERE repo = ?", (row["full_name"],))
+            conn.execute("DELETE FROM code_chunks WHERE repo = ?", (row["full_name"],))
+            conn.execute("DELETE FROM code_maps WHERE repo = ?", (row["full_name"],))
         conn.execute("DELETE FROM repos WHERE id = ?", (repo_id,))
 
 
@@ -742,6 +771,52 @@ def update_model(key: str, **fields: Any) -> None:
             f"UPDATE models SET {assignments} WHERE key = ?",
             [*fields.values(), time.time(), key],
         )
+
+
+# -- code index -----------------------------------------------------------
+
+def save_code_index(repo: str, index: dict[str, Any]) -> None:
+    """Replaces a repo's code map and chunks in one transaction."""
+    from .code_index import to_blob
+
+    chunks = index.get("chunks") or []
+    with _connect() as conn:
+        conn.execute("DELETE FROM code_chunks WHERE repo = ?", (repo,))
+        conn.executemany(
+            "INSERT INTO code_chunks (repo, path, start_line, end_line, text, embedding) VALUES (?, ?, ?, ?, ?, ?)",
+            [(repo, c["path"], c["start"], c["end"], c["text"], to_blob(c["embedding"]))
+             for c in chunks if c.get("embedding")],
+        )
+        conn.execute(
+            """
+            INSERT INTO code_maps (repo, commit_sha, map, chunk_count, error, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(repo) DO UPDATE SET commit_sha = excluded.commit_sha, map = excluded.map,
+                chunk_count = excluded.chunk_count, error = excluded.error, updated_at = excluded.updated_at
+            """,
+            (repo, index["commit_sha"], index.get("map") or "", len(chunks), index.get("error"), time.time()),
+        )
+
+
+def get_code_map(repo: str) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM code_maps WHERE repo = ?", (repo,)).fetchone()
+        return _row_to_dict(row) if row else None
+
+
+def load_code_chunks(repo: str) -> list[dict[str, Any]]:
+    """A repo's chunks with their embeddings as float arrays ("vector")."""
+    from .code_index import from_blob
+
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT path, start_line, end_line, text, embedding FROM code_chunks WHERE repo = ?", (repo,)
+        ).fetchall()
+    return [
+        {"path": r["path"], "start": r["start_line"], "end": r["end_line"], "text": r["text"],
+         "vector": from_blob(r["embedding"])}
+        for r in rows
+    ]
 
 
 # -- settings -----------------------------------------------------------
