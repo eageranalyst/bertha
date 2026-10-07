@@ -22,11 +22,26 @@ AS_AGENT=(setpriv --reuid=node --regid=node --init-groups env -u GITHUB_TOKEN -u
         git -c user.name="${BOT_NAME:-factory-agent}" -c user.email="${BOT_EMAIL:-factory-agent@users.noreply.github.com}" \
             commit -q -m "${COMMIT_MESSAGE:-Work in progress}"
     fi
+    # Workflow files are never pushed (see entrypoint.sh): say so plainly.
+    if git rev-parse -q --verify "refs/remotes/origin/$BRANCH_NAME" >/dev/null; then
+        base="origin/$BRANCH_NAME"
+    else
+        base=$(git merge-base origin/HEAD HEAD 2>/dev/null || true)
+    fi
+    if [ -n "$base" ] && ! git diff --quiet "$base" HEAD -- .github/workflows; then
+        echo "WORKFLOWS=$(git diff --name-only "$base" HEAD -- .github/workflows | tr "\n" " ")"
+        exit 0
+    fi
     git bundle create -q '"$BUNDLE"' HEAD
-' >/dev/null 2>/data/push_error.txt || {
+' >/data/push_check.txt 2>/data/push_error.txt || {
     echo "PUSH_ERROR=couldn't commit the changes: $(tail -c 400 /data/push_error.txt | tr '\n' ' ')"
     exit 1
 }
+
+if grep -q '^WORKFLOWS=' /data/push_check.txt; then
+    echo "PUSH_ERROR=these commits change workflow files ($(sed -n 's/^WORKFLOWS=//p' /data/push_check.txt)), which can't be pushed mid-turn. Keep your workflow changes; when the turn ends, Bertha pushes everything else and posts the workflow change on the pull request for the user to apply. To push now, move the workflow edits out of your commits first."
+    exit 1
+fi
 
 source /opt/factory/git_safe.sh
 write_global_git_config

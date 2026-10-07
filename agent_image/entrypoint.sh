@@ -396,24 +396,37 @@ PY
             if [ -s /data/pr_summary.md ]; then echo; cat /data/pr_summary.md; fi
         } > /data/commit_message.txt
         git commit -F /data/commit_message.txt >/dev/null
-        echo "FACTORY_PUSHED=1"
-    else
-        echo "FACTORY_PUSHED=0"
+    fi
+
+    # Workflow files are never pushed: a workflow an agent wrote would run in
+    # CI with the repo's secrets before anyone reviewed it (and the token
+    # isn't allowed to change them). The commits not yet on GitHub are
+    # squashed into one without them, and the change itself is handed to
+    # Bertha, which posts it on the pull request for a person to apply.
+    if [ -z "${NO_PUSH:-}" ]; then
+        hold_back_workflows "$BRANCH_NAME"
     fi
 
     # Commits this branch has beyond the default branch. Zero means the
     # agent changed nothing, which is a normal outcome, not a failure.
     AHEAD=$(git rev-list --count "origin/HEAD..HEAD" 2>/dev/null || echo 0)
+    PUSH_FAILED=""
     if [ "$AHEAD" -eq 0 ]; then
         echo "FACTORY_NO_CHANGES=1"
     elif [ -n "${NO_PUSH:-}" ]; then
         # An eval run: the commit stays in the workspace for checking.
         echo "FACTORY_DRY_RUN=1"
+    elif git push -q origin "$BRANCH_NAME" 2>/data/push_error.txt; then
+        echo "FACTORY_PUSHED=1"
     else
-        git push origin "$BRANCH_NAME"
+        # Reported, not fatal: the work stays committed here for the next turn.
+        cat /data/push_error.txt
+        echo "FACTORY_PUSH_FAILED=$(grep -E 'rejected|refusing|error|fatal' /data/push_error.txt | head -3 | tr '\n' ' ')"
+        PUSH_FAILED=1
+        AGENT_EXIT=1
     fi
 
-    if [ -z "${NO_PUSH:-}" ] && [ "$AHEAD" -gt 0 ] && { [ -z "${PR_NUMBER:-}" ] || [ "${PR_NUMBER}" = "0" ]; }; then
+    if [ -z "${NO_PUSH:-}" ] && [ -z "$PUSH_FAILED" ] && [ "$AHEAD" -gt 0 ] && { [ -z "${PR_NUMBER:-}" ] || [ "${PR_NUMBER}" = "0" ]; }; then
         {
             if [ -s /data/pr_summary.md ]; then cat /data/pr_summary.md; echo; fi
             echo "${PR_BODY:-Automated changes from factory agent.}"

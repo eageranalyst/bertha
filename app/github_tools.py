@@ -559,6 +559,9 @@ def _pr_write(client: httpx.Client, grant: dict, name: str, args: dict) -> Any:
         if not sha:
             error = next((l.split("=", 1)[1] for l in output.splitlines() if l.startswith("PUSH_ERROR=")),
                          output.strip()[-400:] or "the push failed")
+            if "workflow" in error and "PUSH_ERROR=these commits" not in output:
+                error += (" Workflow files (.github/workflows) are never pushed: Bertha leaves them out when the "
+                          "turn ends and posts them on the pull request for the user to apply.")
             raise ToolError(f"push failed: {error}")
         # Bertha watches CI on what was pushed (see Scheduler._check_ci).
         store.update_session(session_id, ci_sha="")

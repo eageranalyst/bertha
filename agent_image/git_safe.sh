@@ -24,6 +24,35 @@ write_global_git_config() {
     git config --global core.hooksPath /dev/null
 }
 
+# Takes CI workflow changes out of the commits not yet on GitHub, in the
+# current directory's repo: those commits are squashed into one without them,
+# the files go back to how GitHub has them, and the change is printed as
+# FACTORY_WORKFLOW_HELD (the files) and FACTORY_WORKFLOW_PATCH (the diff, in
+# base64) for Bertha to post. Does nothing when no workflow changed.
+hold_back_workflows() {
+    local branch="$1" base held
+    if git rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null; then
+        base="origin/$branch"
+    else
+        base=$(git merge-base origin/HEAD HEAD 2>/dev/null || true)
+    fi
+    if [ -z "$base" ] || git diff --quiet "$base" HEAD -- .github/workflows; then
+        return 0
+    fi
+    held=$(git diff --name-only "$base" HEAD -- .github/workflows | tr '\n' ' ')
+    git diff "$base" HEAD -- .github/workflows > /data/workflow.patch
+    git log --reverse --format=%B "$base..HEAD" > /data/held_messages.txt
+    git reset -q --soft "$base"
+    git rm -r -q --cached .github/workflows 2>/dev/null || true
+    git checkout "$base" -- .github/workflows 2>/dev/null || true
+    git ls-files --others --exclude-standard -- .github/workflows | xargs -r rm -f
+    if ! git diff --cached --quiet; then
+        git commit -q -F /data/held_messages.txt
+    fi
+    echo "FACTORY_WORKFLOW_HELD=$held"
+    echo "FACTORY_WORKFLOW_PATCH=$(base64 -w0 /data/workflow.patch)"
+}
+
 # Replaces the checkout's .git/config with a minimal one for $REPO.
 reset_repo_git_config() {
     local dir="${1:-/data/repo}"

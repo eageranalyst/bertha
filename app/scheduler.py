@@ -35,6 +35,7 @@ Session lifecycle:
     closed / archived -> scheduler ignores these entirely
 """
 
+import base64
 import json
 import logging
 import threading
@@ -635,6 +636,11 @@ class Scheduler:
             "session %s turn finished: exit=%s pr=%s -> %s",
             session["id"], exit_code, pr_number, new_status,
         )
+        if session["repo"]:
+            try:
+                self._report_push(store.get_session(session["id"]), logs)
+            except Exception:
+                logger.exception("failed reporting session %s's push", session["id"])
         if session.get("spec_phase") and session["repo"]:
             try:
                 self._after_spec_turn(store.get_session(session["id"]), logs, new_status)
@@ -724,6 +730,43 @@ class Scheduler:
             store.set_pending_message(session["id"], combined)
             store.append_log(session["id"], "pr_comment", combined)
             logger.info("session %s woken by PR comment(s)", session["id"])
+
+    # -- what the end of a turn pushed ----------------------------------
+
+    def _report_push(self, session: dict[str, Any], logs: str) -> None:
+        """Says in the session when the branch couldn't be pushed, and posts
+        workflow changes, which are never pushed, on the PR for you to apply."""
+        values = {}
+        for line in logs.splitlines():
+            if line.startswith(("FACTORY_PUSH_FAILED=", "FACTORY_WORKFLOW_HELD=", "FACTORY_WORKFLOW_PATCH=")):
+                key, value = line.split("=", 1)
+                values[key] = value.strip()
+        if "FACTORY_PUSH_FAILED" in values:
+            reason = values["FACTORY_PUSH_FAILED"] or "GitHub refused it"
+            store.append_log(session["id"], "system",
+                             f"Bertha couldn't push the branch: {reason}. The work is committed in the session's "
+                             "workspace; send a message to try again.")
+        held = values.get("FACTORY_WORKFLOW_HELD")
+        if not held:
+            return
+        try:
+            patch = base64.b64decode(values.get("FACTORY_WORKFLOW_PATCH", "")).decode(errors="replace")
+        except ValueError:
+            patch = ""
+        where = f"PR #{session['pr_number']}" if session["pr_number"] else "the session (no PR yet)"
+        store.append_log(session["id"], "system",
+                         f"Left workflow changes out of the push ({held.strip()}): agents can't change CI "
+                         f"workflows. The change is posted on {where} for you to apply.")
+        if not session["pr_number"]:
+            store.append_log(session["id"], "system", f"Workflow change:\n\n```diff\n{patch[:20_000]}\n```")
+            return
+        shown = patch if len(patch) <= 50_000 else patch[:50_000] + "\n… (truncated)"
+        self.gh.comment_pr(session["repo"], session["pr_number"], (
+            "**Workflow changes for you to apply.** The agent changed CI workflows, which Bertha never "
+            "pushes: a workflow an agent wrote would run with this repo's secrets before anyone reviewed it. "
+            "The rest of the change is on this branch. If this looks right, apply it on the branch and push "
+            f"(`git apply` with the diff below):\n\n```diff\n{shown}\n```"
+        ))
 
     # -- CI on a session's pull request ---------------------------------
 
