@@ -94,8 +94,10 @@ still worth doing on top of it, not done yet:
   4. after `FACTORY_SLEEP_AFTER_MINUTES` of no activity, moves `pr_open`
      sessions to `sleeping`
   5. polls `sleeping` sessions' PRs for new comments since the last one
-     seen (skipping the bot's own comments, so it never wakes itself)
-     and queues a new turn with those comments as the prompt
+     seen, and queues a new turn with those comments as the prompt. Only
+     comments from people who can write to the repo count. Bertha's own
+     comments carry a hidden `<!-- bertha -->` marker and are skipped, so
+     it never wakes itself, even when it posts as your account
 - **A session with a pending message is always what drives the next
   turn** -- a fresh issue's body, the opening prompt from creation, a
   UI message, or a new PR comment all just set `pending_message` and
@@ -124,6 +126,32 @@ still worth doing on top of it, not done yet:
   highlighting (`react-markdown` + `rehype-highlight`); raw container
   logs (`agent_output`) render as plain preformatted text instead,
   since that's an NDJSON dump, not prose.
+
+## Spec-first sessions
+
+For bigger or vaguer work, a code session can write a spec for you to
+review before any code (`app/specs.py`). Tick **Spec first** when starting
+a session (it's on by default for long prompts), or label an issue
+`needs-spec` before assigning it to the bot.
+
+1. **Spec.** The first turn reads the code and writes
+   `specs/<issue-or-ref>-<title>.md`, then opens a **draft** PR, with the
+   task's title, labelled `spec-review`. A spec turn may only write the spec:
+   the entrypoint throws away any other change and says so in the session.
+2. **Review.** Comment on the PR, on lines of the spec or in the
+   conversation. Each batch of comments starts a revise turn that updates the
+   spec and replies on the PR. Messages sent in Bertha count as feedback too.
+3. **Approve.** Comment `/approve-spec` (or press **Approve and build** in the
+   session). Any comments sent with the approval go to the build too. The build
+   turn starts a fresh agent conversation with the approved spec as its plan,
+   on the same branch. When it finishes, the PR is marked ready for review,
+   with the spec and the code together.
+4. `/abandon` (or **Abandon**) closes the PR and the session.
+
+The PR's label (`spec-review`, then `building`) and a status line at the top
+of its description show where it is. Only comments from people with write
+access steer a session; others are noted in the session and otherwise
+ignored. Comments wait while a turn runs, and are picked up after it.
 
 ## Repos and wiki
 

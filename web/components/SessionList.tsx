@@ -7,6 +7,7 @@ import type { AttentionReason, Session } from "@/lib/types";
 const ATTENTION_LABEL: Record<AttentionReason, string> = {
   replied: "Waiting for your reply",
   review: "PR is open and waiting on you",
+  spec: "Spec waiting on your review",
   failed: "The last turn failed",
 };
 

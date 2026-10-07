@@ -160,6 +160,11 @@ class NewSessionIn(BaseModel):
     dry_run: bool = False
     # Give the agent Bertha's GitHub tools for the session's repo.
     github_tools: bool = False
+    # Write a spec for review on a draft PR before building (app/specs.py).
+    spec_first: bool = False
+    # An issue in the repo this session works on: the PR closes it, a spec is
+    # named after it, and its text is the prompt when none is given.
+    issue_number: int | None = None
 
 
 class RepoIn(BaseModel):
@@ -308,6 +313,20 @@ def _derive_title(prompt: str | None) -> str:
 def api_new_session(body: NewSessionIn):
     if body.session_type not in ("ask", "code"):
         raise HTTPException(400, "session_type must be 'ask' or 'code'")
+    if body.spec_first and (body.session_type != "code" or not body.repo):
+        raise HTTPException(400, "a spec-first session needs to be a code session with a repo")
+    title = _derive_title(body.prompt)
+    if body.issue_number is not None:
+        if body.session_type != "code" or not body.repo:
+            raise HTTPException(400, "linking an issue needs a code session with a repo")
+        gh: GitHubClient = _state["gh"]  # type: ignore[assignment]
+        try:
+            issue = gh.get_issue(body.repo, body.issue_number)
+        except Exception:
+            raise HTTPException(400, f"couldn't find issue #{body.issue_number} in {body.repo}")
+        title = issue["title"]
+        if not (body.prompt or "").strip():
+            body.prompt = f"{issue['title']}\n\n{issue['body']}".strip()
     settings = get_settings()
     if body.model:
         chosen = store.get_model(body.model)
@@ -320,15 +339,18 @@ def api_new_session(body: NewSessionIn):
     session_id = store.create_session(
         session_type=body.session_type,
         repo=body.repo,
-        title=_derive_title(body.prompt),
+        issue_number=body.issue_number,
+        title=title,
         pending_message=body.prompt,
         model=model_key,
         # A model the user picked stays on this session; the default is routed per turn.
         model_pinned=bool(body.model),
         dry_run=body.dry_run,
         github_tools=body.github_tools and bool(body.repo),
+        spec_first=body.spec_first,
     )
-    store.append_log(session_id, "system", f"Started a new {body.session_type} session")
+    store.append_log(session_id, "system", f"Started a new {body.session_type} session"
+                     + (", spec first" if body.spec_first else ""))
     if body.prompt:
         store.append_log(session_id, "user_message", body.prompt)
     return store.get_session(session_id)
@@ -621,6 +643,51 @@ def api_undo_session_github(session_id: int):
     store.append_log(session_id, "system",
                      f"Undid {sum(r['undone'] for r in results)} GitHub change(s) from the UI")
     return results
+
+
+# -- spec-first sessions ------------------------------------------------------
+
+@app.get("/api/sessions/{session_id}/spec")
+def api_session_spec(session_id: int):
+    """The session's spec as it is on its branch, with where to review it."""
+    session = _get_or_404(session_id)
+    if not session.get("spec_phase"):
+        raise HTTPException(404, "this session has no spec")
+    gh: GitHubClient = _state["gh"]  # type: ignore[assignment]
+    path, branch = session.get("spec_path"), session.get("branch_name")
+    content = gh.file_at(session["repo"], path, branch) if path and branch and session["pr_number"] else None
+    return {
+        "phase": session["spec_phase"],
+        "path": path,
+        "content": content,
+        "url": f"https://github.com/{session['repo']}/blob/{branch}/{path}" if content else None,
+        "pr_url": f"https://github.com/{session['repo']}/pull/{session['pr_number']}" if session["pr_number"] else None,
+    }
+
+
+def _spec_in_review_or_409(session_id: int) -> dict:
+    session = _get_or_404(session_id)
+    if session.get("spec_phase") != "review":
+        raise HTTPException(409, "the spec isn't waiting on review")
+    if session["status"] in ("running", "queued"):
+        raise HTTPException(409, "wait for the current turn to finish")
+    return session
+
+
+@app.post("/api/sessions/{session_id}/spec/approve")
+def api_approve_spec(session_id: int):
+    session = _spec_in_review_or_409(session_id)
+    scheduler: Scheduler = _state["scheduler"]  # type: ignore[assignment]
+    scheduler.approve_spec(session, "you, in Bertha", from_ui=True)
+    return store.get_session(session_id)
+
+
+@app.post("/api/sessions/{session_id}/spec/abandon")
+def api_abandon_spec(session_id: int):
+    session = _spec_in_review_or_409(session_id)
+    scheduler: Scheduler = _state["scheduler"]  # type: ignore[assignment]
+    scheduler.abandon_spec(session, "you, in Bertha", from_ui=True)
+    return store.get_session(session_id)
 
 
 @app.get("/api/security")

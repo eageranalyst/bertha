@@ -259,6 +259,16 @@ def _add_missing_session_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE sessions ADD COLUMN dry_run INTEGER NOT NULL DEFAULT 0")
     if "last_turn_failed" not in cols:
         conn.execute("ALTER TABLE sessions ADD COLUMN last_turn_failed INTEGER NOT NULL DEFAULT 0")
+    if "spec_phase" not in cols:
+        # Spec-first sessions (app/specs.py): drafting, review, building, built or abandoned.
+        conn.execute("ALTER TABLE sessions ADD COLUMN spec_phase TEXT")
+    if "spec_path" not in cols:
+        conn.execute("ALTER TABLE sessions ADD COLUMN spec_path TEXT")
+    if "comments_seen_at" not in cols:
+        # The newest PR comment or review already acted on (UTC epoch). Comments,
+        # line comments and reviews have separate id sequences, so time is the
+        # one cursor that covers all three.
+        conn.execute("ALTER TABLE sessions ADD COLUMN comments_seen_at REAL")
     model_cols = {row[1] for row in conn.execute("PRAGMA table_info(models)").fetchall()}
     if model_cols and "context_length" not in model_cols:
         # Tokens the model can take, as the server reports it: the loaded
@@ -362,6 +372,7 @@ def create_session(
     github_tools: bool = False,
     schedule_id: int | None = None,
     deadline_at: float | None = None,
+    spec_first: bool = False,
 ) -> int:
     now = time.time()
     # Nothing to run yet without an opening message -- sit idle (e.g. a
@@ -380,13 +391,14 @@ def create_session(
             INSERT INTO sessions
                 (ref, session_type, repo, issue_number, title, branch_name,
                  pending_message, status, workspace, model, model_pinned, dry_run,
-                 github_tools, schedule_id, deadline_at,
+                 github_tools, schedule_id, deadline_at, spec_phase,
                  last_activity_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (ref, session_type, repo, issue_number, title, branch_name,
              pending_message, status, f"factory-ws-{ref}", model, 1 if model_pinned else 0,
              1 if dry_run else 0, 1 if github_tools else 0, schedule_id, deadline_at,
+             "drafting" if spec_first else None,
              now, now, now),
         )
         return cur.lastrowid
@@ -445,6 +457,9 @@ _ALLOWED_FIELDS = {
     "schedule_id",
     "deadline_at",
     "stream_log_id",
+    "spec_phase",
+    "spec_path",
+    "comments_seen_at",
 }
 
 

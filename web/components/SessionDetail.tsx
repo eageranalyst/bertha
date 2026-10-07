@@ -6,6 +6,7 @@ import { Markdown } from "./Markdown";
 import { AgentOutputLog } from "./AgentOutputLog";
 import { GitHubChanges } from "./GitHubChanges";
 import { ScheduleLink } from "./ScheduleLink";
+import { SpecPanel } from "./SpecPanel";
 import {
   MessageRow,
   MessageBubble,
@@ -39,6 +40,8 @@ export function SessionDetail({
   onArchive,
   onReopen,
   onModelChange,
+  onApproveSpec,
+  onAbandonSpec,
 }: {
   session: Session;
   logs: LogEntry[];
@@ -50,6 +53,8 @@ export function SessionDetail({
   onReopen: () => Promise<void>;
   /** null hands the session back to per-turn routing. */
   onModelChange: (model: string | null) => Promise<void>;
+  onApproveSpec: () => Promise<void>;
+  onAbandonSpec: () => Promise<void>;
 }) {
   const pinned = session.model_pinned === 1;
   const enabledModels = models.filter((m) => m.enabled);
@@ -170,6 +175,7 @@ export function SessionDetail({
         )}
       </div>
 
+      {session.spec_phase && <SpecPanel session={session} onApprove={onApproveSpec} onAbandon={onAbandonSpec} />}
       {session.github_tools === 1 && <GitHubChanges session={session} />}
 
       <div id="detail-logs" ref={logsRef}>

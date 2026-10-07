@@ -45,7 +45,7 @@ import httpx
 
 from datetime import datetime, timezone
 
-from . import agent_settings, code_index, cron
+from . import agent_settings, code_index, cron, specs
 from . import models as model_registry
 from . import store
 from .routing import route as route_turn
@@ -167,6 +167,7 @@ class Scheduler:
         `poll_interval_seconds`, same as before this split.
         """
         self._discover_new_issues()
+        self._check_spec_reviews()
         self._check_sleeping()
 
     def _routed(self, session: dict[str, Any], prompt: str, session_type: str) -> dict[str, Any]:
@@ -336,6 +337,8 @@ class Scheduler:
             title=issue["title"],
             branch_name=branch,
             pending_message=issue["body"] or issue["title"],
+            # An issue labelled needs-spec gets a spec to review before any code.
+            spec_first="needs-spec" in issue.get("labels", []),
         )
         store.append_log(
             session_id, "system", f"Picked up issue #{issue['number']}: {issue['title']}"
@@ -450,6 +453,7 @@ class Scheduler:
         # The ref keeps this unique, so a branch left over from an earlier
         # session can't block the checkout.
         branch_name = session["branch_name"] or f"factory/session-{session['ref']}"
+        spec_env = self._spec_turn_env(session, prompt, branch_name)
         chosen = model_registry.resolve(self.settings, session.get("model"))
         opencode_model = (
             f"{self.settings.local_model_provider}/{chosen['key']}"
@@ -459,7 +463,7 @@ class Scheduler:
             "REPO": session["repo"] or "",
             "GITHUB_TOKEN": self.settings.github_token,
             "BRANCH_NAME": branch_name,
-            "PROMPT": prompt,
+            "PROMPT": spec_env.pop("message", prompt),
             "OPENCODE_SESSION_ID": session["harness_session_id"] or "",
             "OPENCODE_MODEL": opencode_model,
             # The repo's wiki, loaded as standing instructions (like CLAUDE.md).
@@ -500,6 +504,7 @@ class Scheduler:
                 f"Closes #{session['issue_number']}"
                 if session["issue_number"] else "Automated changes from factory agent."
             ),
+            **spec_env,
         }
         try:
             container_id = self.runner.start_turn(
@@ -613,6 +618,11 @@ class Scheduler:
             "session %s turn finished: exit=%s pr=%s -> %s",
             session["id"], exit_code, pr_number, new_status,
         )
+        if session.get("spec_phase") and session["repo"]:
+            try:
+                self._after_spec_turn(store.get_session(session["id"]), logs, new_status)
+            except Exception:
+                logger.exception("failed updating the spec PR for session %s", session["id"])
         if new_status == "failed" and "FACTORY_CONTEXT_TOO_SMALL=1" in logs:
             self._retry_on_another_model(
                 store.get_session(session["id"]),
@@ -673,18 +683,198 @@ class Scheduler:
         for session in store.list_sessions(status="sleeping"):
             if not session["pr_number"] or not session["repo"]:
                 continue
+            if session.get("spec_phase") == "review":
+                continue  # _check_spec_reviews reads this PR's comments
             try:
+                # Comments since the session went quiet. Sessions from before
+                # the time cursor start from their last activity, so comments
+                # they already passed over don't wake them now.
                 comments = self.gh.new_pr_comments(
-                    session["repo"], session["pr_number"], session["last_seen_comment_id"]
+                    session["repo"], session["pr_number"], session["last_seen_comment_id"],
+                    since=session.get("comments_seen_at") or session["last_activity_at"],
                 )
             except Exception:
                 logger.exception("failed polling PR comments for session %s", session["id"])
                 continue
             if not comments:
                 continue
-            max_id = max(c["id"] for c in comments)
+            store.update_session(session["id"], comments_seen_at=max(c["at"] for c in comments))
+            # Only people who can write to the repo can set the agent to work.
+            comments = [c for c in comments if self.gh.can_write(session["repo"], c["author"])]
+            if not comments:
+                continue
             combined = "\n\n".join(f"@{c['author']}: {c['body']}" for c in comments)
-            store.update_session(session["id"], last_seen_comment_id=max_id)
             store.set_pending_message(session["id"], combined)
             store.append_log(session["id"], "pr_comment", combined)
             logger.info("session %s woken by PR comment(s)", session["id"])
+
+    # -- spec-first sessions (app/specs.py) -----------------------------
+
+    def _original_task(self, session: dict[str, Any]) -> str:
+        first = next((l for l in store.list_logs(session["id"]) if l["kind"] == "user_message"), None)
+        return first["content"] if first else session["title"] or ""
+
+    def _spec_turn_env(self, session: dict[str, Any], prompt: str, branch: str) -> dict[str, str]:
+        """What a spec-first session's turn adds to the container's environment.
+        Drafting and revising are spec turns: the message is Bertha's own and
+        only the spec file is kept. A build turn is a normal turn, whose
+        message (set at approval) points at the approved spec."""
+        phase = session.get("spec_phase") if session["repo"] else None
+        if phase not in ("drafting", "review"):
+            return {}
+        path = session.get("spec_path") or specs.spec_path(session)
+        if not session.get("spec_path"):
+            store.update_session(session["id"], spec_path=path)
+            session["spec_path"] = path
+        if phase == "drafting":
+            task = self._original_task(session)
+            if prompt.strip() and prompt.strip() != task.strip():
+                task += f"\n\nAdded by the user since:\n{prompt}"
+            message = specs.draft_message(task, path, branch)
+        else:
+            message = specs.revise_message(prompt, path)
+        return {
+            "message": message,
+            "SPEC_MODE": "draft",
+            "SPEC_PATH": path,
+            "COMMIT_TITLE": f"Spec: {session['title'] or path}",
+        }
+
+    def _after_spec_turn(self, session: dict[str, Any], logs: str, status: str) -> None:
+        """Moves a spec-first session on after a turn, and brings the PR's label
+        and status line up to date."""
+        phase = session["spec_phase"]
+        path = session.get("spec_path") or ""
+        for line in logs.splitlines():
+            if line.startswith("FACTORY_SPEC_DISCARDED="):
+                store.append_log(session["id"], "system",
+                                 "The spec turn changed files other than the spec; those changes were "
+                                 f"discarded: {line.split('=', 1)[1].strip()}")
+        if "FACTORY_SPEC_MISSING=1" in logs:
+            store.append_log(session["id"], "system", f"The turn ended without writing the spec to {path}")
+        if phase in ("drafting", "review"):
+            if status == "failed":
+                if phase == "review":
+                    self._spec_pr_update(session, "review")
+                return
+            # A message sent during the turn is the next thing to act on, as in _settle.
+            fields: dict[str, Any] = {"spec_phase": "review",
+                                      "attention": None if session["pending_message"] else "spec"}
+            if not session.get("comments_seen_at"):
+                fields["comments_seen_at"] = time.time()
+            store.update_session(session["id"], **fields)
+            session = {**session, **fields}
+            if phase == "review" and session["pr_number"] and not session.get("dry_run"):
+                reply = _final_message(logs) or "Updated the spec."
+                self.gh.comment_pr(session["repo"], session["pr_number"],
+                                   f"Updated the spec ([`{path}`]({self._spec_url(session)})).\n\n{reply}")
+            self._spec_pr_update(session, "review")
+        elif phase == "building":
+            if status == "failed":
+                self._spec_pr_update(session, "build_failed")
+                return
+            store.update_session(session["id"], spec_phase="built")
+            if session["pr_number"] and not session.get("dry_run"):
+                self.gh.mark_ready(session["repo"], session["pr_number"])
+            self._spec_pr_update(session, "built")
+
+    def _spec_url(self, session: dict[str, Any]) -> str:
+        return f"https://github.com/{session['repo']}/blob/{session['branch_name']}/{session['spec_path']}"
+
+    def _spec_pr_update(self, session: dict[str, Any], state: str) -> None:
+        """The PR's spec label and status line for `state` (a phase, or
+        revising / build_failed). Best effort: GitHub being down mustn't
+        stop the session moving on."""
+        if not session.get("pr_number") or session.get("dry_run"):
+            return
+        repo, pr = session["repo"], session["pr_number"]
+        label = {"review": "spec-review", "revising": "spec-review",
+                 "building": "building", "build_failed": "building"}.get(state)
+        line = specs.status_line(state, session.get("spec_path") or "", repo, session["branch_name"] or "")
+        try:
+            self.gh.set_pr_labels(repo, pr, label, specs.LABELS)
+            self.gh.set_pr_body(repo, pr, lambda body: specs.with_status(body, line))
+        except Exception:
+            logger.exception("failed updating spec status on %s#%s", repo, pr)
+
+    def _check_spec_reviews(self) -> None:
+        """Acts on new comments on specs under review. Only people who can
+        write to the repo steer a session; anyone else's comment is noted
+        in the session and otherwise ignored."""
+        for session in store.list_sessions():
+            if (session.get("spec_phase") != "review" or not session["pr_number"] or not session["repo"]
+                    or session["status"] in TERMINAL_STATUSES | BUSY_OR_QUEUED):
+                continue
+            since = session.get("comments_seen_at") or session["created_at"]
+            try:
+                comments = self.gh.new_pr_comments(session["repo"], session["pr_number"], 0, since=since)
+            except Exception:
+                logger.exception("failed reading spec comments for session %s", session["id"])
+                continue
+            if not comments:
+                continue
+            store.update_session(session["id"], comments_seen_at=max(c["at"] for c in comments))
+            trusted = []
+            for c in comments:
+                if self.gh.can_write(session["repo"], c["author"]):
+                    trusted.append(c)
+                    store.append_log(session["id"], "pr_comment", f"@{c['author']}: {c['body']}")
+                else:
+                    store.append_log(session["id"], "system",
+                                     f"Ignored a comment from @{c['author']}: they can't write to {session['repo']}")
+            commands = {specs.command_of(c["body"]): c for c in trusted if specs.command_of(c["body"])}
+            feedback = [c for c in trusted if not specs.command_of(c["body"])]
+            if specs.ABANDON_COMMAND in commands:
+                self.abandon_spec(session, f"@{commands[specs.ABANDON_COMMAND]['author']}")
+            elif specs.APPROVE_COMMAND in commands:
+                self.approve_spec(session, f"@{commands[specs.APPROVE_COMMAND]['author']}", feedback)
+            elif feedback:
+                store.set_pending_message(session["id"], "\n\n".join(specs.describe_comment(c) for c in feedback))
+                self._spec_pr_update(session, "revising")
+
+    def approve_spec(self, session: dict[str, Any], by: str, comments: list[dict[str, Any]] | None = None,
+                     from_ui: bool = False) -> None:
+        """Starts building the approved spec. The build starts a fresh agent
+        conversation: the approved spec is the plan, without the drafting
+        history filling the context."""
+        if from_ui and session["pr_number"] and not session.get("dry_run"):
+            try:
+                self.gh.comment_pr(session["repo"], session["pr_number"],
+                                   f"{specs.APPROVE_COMMAND}\n\nApproved in Bertha.")
+            except Exception:
+                logger.exception("failed posting the approval on session %s's PR", session["id"])
+        store.update_session(session["id"], spec_phase="building", harness_session_id=None)
+        store.set_pending_message(session["id"], specs.build_message(
+            self._original_task(session), session["spec_path"], comments or []))
+        store.append_log(session["id"], "system", f"Spec approved by {by}; building it")
+        self._spec_pr_update(session, "building")
+
+    def abandon_spec(self, session: dict[str, Any], by: str, from_ui: bool = False) -> None:
+        """Closes the spec's PR and the session, without building anything."""
+        if session["pr_number"] and not session.get("dry_run"):
+            try:
+                if from_ui:
+                    self.gh.comment_pr(session["repo"], session["pr_number"],
+                                       f"{specs.ABANDON_COMMAND}\n\nAbandoned in Bertha.")
+                self._spec_pr_update(session, "abandoned")
+                self.gh.close_pr(session["repo"], session["pr_number"])
+            except Exception:
+                logger.exception("failed closing session %s's spec PR", session["id"])
+        self.runner.remove_volume(store.workspace_of(session))
+        store.update_session(session["id"], spec_phase="abandoned", status="closed", pending_message=None,
+                             attention=None, harness_session_id=None)
+        store.append_log(session["id"], "system", f"Spec abandoned by {by}; the PR is closed")
+
+
+def _final_message(logs: str) -> str:
+    """The agent's last message in a turn's output, which ends with its report."""
+    last = ""
+    for line in logs.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        part = event.get("part") or {}
+        if event.get("type") == "text" and (part.get("text") or "").strip():
+            last = part["text"]
+    return last.strip()[-4000:]

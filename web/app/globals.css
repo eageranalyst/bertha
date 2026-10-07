@@ -123,7 +123,7 @@ main { display: flex; flex: 1; min-height: 0; }
 .session-row-top { display: flex; align-items: center; gap: 7px; }
 .attention-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .attention-replied { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.attention-review { background: var(--warn); box-shadow: 0 0 0 3px #2a2416; }
+.attention-review, .attention-spec { background: var(--warn); box-shadow: 0 0 0 3px #2a2416; }
 .attention-failed { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
 .session-row-title {
   flex: 1;
@@ -360,6 +360,8 @@ main { display: flex; flex: 1; min-height: 0; }
 .compose-actions { display: flex; gap: 10px; }
 .compose-actions button { padding: 9px 22px; font-size: 13.5px; }
 .compose-hint { margin-top: 10px; font-size: 12px; color: var(--text-faint); }
+.compose-issue { width: 80px; }
+.compose-hint-inline { font-size: 12px; color: var(--text-faint); }
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -517,6 +519,13 @@ a:hover { text-decoration: underline; }
 .github-changes li.undone { opacity: 0.55; text-decoration: line-through; }
 .github-changes li.refused { color: var(--danger); }
 .github-changes-actions { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+.spec-panel { margin: 0 0 12px; border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 8px 12px; background: var(--bg-raised); }
+.spec-panel summary { cursor: pointer; font-size: 12.5px; color: var(--text-dim); }
+.spec-phase { font-weight: 600; color: var(--text); }
+.spec-phase-review { color: var(--warn); }
+.spec-phase-abandoned { color: var(--text-faint); }
+.spec-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 10px 0 4px; }
+.spec-body { margin-top: 10px; max-height: 420px; overflow-y: auto; border-top: 1px solid var(--border-soft); padding-top: 8px; }
 
 /* -- settings ---------------------------------------------------------- */
 

@@ -11,6 +11,7 @@ import type {
   Repo,
   SecurityStatus,
   Session,
+  SessionSpec,
   SessionType,
   Skill,
   SkillWithContent,
@@ -136,8 +137,14 @@ export const api = {
     repo: string | null;
     prompt: string | null;
     model: string | null;
+    spec_first?: boolean;
+    issue_number?: number | null;
   }) =>
     request<Session>("/api/sessions", { method: "POST", body: JSON.stringify(body) }),
+
+  getSpec: (id: number) => request<SessionSpec>(`/api/sessions/${id}/spec`),
+  approveSpec: (id: number) => request<Session>(`/api/sessions/${id}/spec/approve`, { method: "POST" }),
+  abandonSpec: (id: number) => request<Session>(`/api/sessions/${id}/spec/abandon`, { method: "POST" }),
 
   sendMessage: (id: number, text: string) =>
     request<Session>(`/api/sessions/${id}/message`, {

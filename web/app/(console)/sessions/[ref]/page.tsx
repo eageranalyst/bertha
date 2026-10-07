@@ -78,6 +78,8 @@ export default function SessionPage() {
         }
       }}
       onReopen={() => run(() => api.reopenSession(sessionId))}
+      onApproveSpec={() => run(() => api.approveSpec(sessionId))}
+      onAbandonSpec={() => run(() => api.abandonSpec(sessionId))}
     />
   );
 }

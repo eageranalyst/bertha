@@ -30,6 +30,14 @@ directly instead.
 - If the repository context below describes the architecture or
   conventions, follow it.
 
+## Specs
+
+When you're asked to write or revise a spec, the spec is the whole job:
+read the code to get it right, write only the spec file, and leave the
+code alone. Questions you'd otherwise ask go in its Open questions, since
+a person reads the spec before anything is built. When you're asked to
+implement an approved spec, follow it: it's the plan the reviewer agreed.
+
 ## Plan, then work in small steps
 
 - For anything beyond a one-line change, write a short todo list first

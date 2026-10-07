@@ -47,15 +47,22 @@ class DockerRunner:
         self.isolate = isolate
 
     def ensure_image(self, build_context: Path, rebuild: bool = False, tag: str | None = None) -> None:
+        """Builds the image when it's missing or its build folder has changed
+        since it was built, so an edited entrypoint takes effect on restart."""
         tag = tag or self.image_tag
+        digest = hashlib.sha256()
+        for path in sorted(p for p in build_context.rglob("*") if p.is_file()):
+            digest.update(str(path.relative_to(build_context)).encode() + b"\0" + path.read_bytes())
+        fingerprint = digest.hexdigest()[:16]
         if not rebuild:
             try:
-                self.client.images.get(tag)
-                return
+                if self.client.images.get(tag).labels.get("factory.context") == fingerprint:
+                    return
             except ImageNotFound:
                 pass
         logger.info("Building image %s from %s", tag, build_context)
-        _image, logs = self.client.images.build(path=str(build_context), tag=tag, rm=True)
+        _image, logs = self.client.images.build(path=str(build_context), tag=tag, rm=True,
+                                                labels={"factory.context": fingerprint})
         for chunk in logs:
             if "stream" in chunk:
                 logger.debug(chunk["stream"].rstrip())

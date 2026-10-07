@@ -39,6 +39,10 @@ export interface Session {
   github_tools: number;
   /** The schedule that started this session, if any. */
   schedule_id: number | null;
+  /** Where a spec-first session is; null for a normal session. */
+  spec_phase: SpecPhase | null;
+  /** The spec's path in the repo, once the first spec turn has run. */
+  spec_path: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -134,7 +138,18 @@ export interface Model {
 }
 
 /** replied: the agent answered and needs your reply. review: a PR is open. failed: the last turn errored. */
-export type AttentionReason = "replied" | "review" | "failed";
+export type SpecPhase = "drafting" | "review" | "building" | "built" | "abandoned";
+
+export interface SessionSpec {
+  phase: SpecPhase;
+  path: string | null;
+  /** The spec as it is on the branch; null until it has been pushed. */
+  content: string | null;
+  url: string | null;
+  pr_url: string | null;
+}
+
+export type AttentionReason ="replied" | "review" | "spec" | "failed";
 
 export interface LogEntry {
   id: number;

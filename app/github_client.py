@@ -12,6 +12,8 @@ from typing import Any
 import httpx
 from github import Github
 
+from .specs import MARKER
+
 logger = logging.getLogger("factory.github")
 
 
@@ -20,13 +22,15 @@ class GitHubClient:
         self._gh = Github(token)
         self._token = token
         self.bot_username = bot_username
+        self._writers: dict[tuple[str, str], bool] = {}
 
     def find_assigned_issues(self, repo_full_name: str) -> list[dict[str, Any]]:
         """Open issues assigned to the bot account, excluding PRs."""
         repo = self._gh.get_repo(repo_full_name)
         issues = repo.get_issues(state="open", assignee=self.bot_username)
         return [
-            {"number": i.number, "title": i.title, "body": i.body or ""}
+            {"number": i.number, "title": i.title, "body": i.body or "",
+             "labels": [label.name for label in i.labels]}
             for i in issues
             if i.pull_request is None
         ]
@@ -79,22 +83,97 @@ class GitHubClient:
         return {"number": issue.number, "title": issue.title, "body": issue.body or ""}
 
     def new_pr_comments(
-        self, repo_full_name: str, pr_number: int, since_comment_id: int
+        self, repo_full_name: str, pr_number: int, since_comment_id: int, since: float | None = None,
     ) -> list[dict[str, Any]]:
-        """Issue-style and review comments on a PR newer than since_comment_id,
-        excluding ones the bot itself posted (avoids self-triggered wake loops).
+        """Comments on a PR not seen yet: conversation comments, line comments
+        (with the file and line they're on) and review summaries. "Not seen"
+        is newer than `since` (epoch seconds) when given, else a comment id
+        above since_comment_id. Bertha's own comments are left out by their
+        marker, and by the bot's login when the bot has its own account,
+        so they can't wake the session they came from. So are GitHub Apps'.
         """
         repo = self._gh.get_repo(repo_full_name)
         pr = repo.get_pull(pr_number)
+
+        def wanted(item_id: int, at: Any, login: str, body: str | None) -> bool:
+            if not (body or "").strip() or MARKER in body or login.endswith("[bot]"):
+                return False  # empty, Bertha's own, or an app's (CI previews, say)
+            if login == self.bot_username and not self.bot_is_owner(repo_full_name):
+                return False
+            return at.timestamp() > since if since is not None else item_id > since_comment_id
+
         comments: list[dict[str, Any]] = []
         for c in pr.get_issue_comments():
-            if c.id > since_comment_id and c.user.login != self.bot_username:
-                comments.append({"id": c.id, "author": c.user.login, "body": c.body})
+            if wanted(c.id, c.created_at, c.user.login, c.body):
+                comments.append({"id": c.id, "author": c.user.login, "body": c.body,
+                                 "at": c.created_at.timestamp()})
         for c in pr.get_review_comments():
-            if c.id > since_comment_id and c.user.login != self.bot_username:
-                comments.append({"id": c.id, "author": c.user.login, "body": c.body})
-        comments.sort(key=lambda c: c["id"])
+            if wanted(c.id, c.created_at, c.user.login, c.body):
+                comments.append({"id": c.id, "author": c.user.login, "body": c.body,
+                                 "at": c.created_at.timestamp(), "path": c.path,
+                                 "line": c.line or c.original_line})
+        if since is not None:  # review ids are a separate sequence, so only by time
+            for r in pr.get_reviews():
+                if r.submitted_at and wanted(r.id, r.submitted_at, r.user.login, r.body):
+                    comments.append({"id": r.id, "author": r.user.login, "body": r.body,
+                                     "at": r.submitted_at.timestamp()})
+        comments.sort(key=lambda c: c["at"])
         return comments
+
+    def bot_is_owner(self, repo_full_name: str) -> bool:
+        """Whether the bot posts as the repo owner's own account, in which case
+        its login says nothing about who wrote a comment."""
+        return repo_full_name.split("/", 1)[0].lower() == self.bot_username.lower()
+
+    def can_write(self, repo_full_name: str, login: str) -> bool:
+        """Whether this person can push to the repo: only they can steer a
+        session from a comment."""
+        key = (repo_full_name, login)
+        if key not in self._writers:
+            try:
+                permission = self._gh.get_repo(repo_full_name).get_collaborator_permission(login)
+            except Exception:
+                logger.exception("couldn't check %s's access to %s", login, repo_full_name)
+                return False
+            self._writers[key] = permission in ("admin", "maintain", "write")
+        return self._writers[key]
+
+    def comment_pr(self, repo_full_name: str, pr_number: int, body: str) -> None:
+        self._gh.get_repo(repo_full_name).get_issue(pr_number).create_comment(f"{body}\n\n{MARKER}")
+
+    def set_pr_body(self, repo_full_name: str, pr_number: int, edit: Any) -> None:
+        """Replaces the PR body with edit(current body)."""
+        pr = self._gh.get_repo(repo_full_name).get_pull(pr_number)
+        pr.edit(body=edit(pr.body or ""))
+
+    def set_pr_labels(self, repo_full_name: str, pr_number: int, add: str | None, managed: dict[str, tuple[str, str]]) -> None:
+        """Puts `add` on the PR and takes off the other labels in `managed`,
+        creating the label in the repo the first time it's used."""
+        repo = self._gh.get_repo(repo_full_name)
+        issue = repo.get_issue(pr_number)
+        current = {label.name for label in issue.labels}
+        for name in current & set(managed) - {add}:
+            issue.remove_from_labels(name)
+        if add and add not in current:
+            if add not in {label.name for label in repo.get_labels()}:
+                color, description = managed[add]
+                repo.create_label(add, color, description)
+            issue.add_to_labels(add)
+
+    def mark_ready(self, repo_full_name: str, pr_number: int) -> None:
+        pr = self._gh.get_repo(repo_full_name).get_pull(pr_number)
+        if pr.draft:
+            pr.mark_ready_for_review()
+
+    def close_pr(self, repo_full_name: str, pr_number: int) -> None:
+        self._gh.get_repo(repo_full_name).get_pull(pr_number).edit(state="closed")
+
+    def file_at(self, repo_full_name: str, path: str, ref: str) -> str | None:
+        """A file's text on a branch, or None when it isn't there."""
+        try:
+            return self._gh.get_repo(repo_full_name).get_contents(path, ref=ref).decoded_content.decode()
+        except Exception:
+            return None
 
     def pr_state(self, repo_full_name: str, pr_number: int) -> tuple[str, bool]:
         repo = self._gh.get_repo(repo_full_name)

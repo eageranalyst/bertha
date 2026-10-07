@@ -173,7 +173,11 @@ fi
 # so the instructions say to finish the task in this run and state what was
 # done. The final message is reused as the pull request description.
 MESSAGE="$PROMPT"
-if [ -n "$REPO" ]; then
+if [ -n "$REPO" ] && [ "${SPEC_MODE:-}" = "draft" ]; then
+    # A spec turn: Bertha wrote the whole message (app/specs.py). Only the
+    # spec file is kept afterwards, so the turn can't slip into building.
+    : "${SPEC_PATH:?SPEC_PATH env var required for a spec turn}"
+elif [ -n "$REPO" ]; then
     # The general working practices come from WORKING.md (see "instructions"
     # in the config); this only adds what's specific to this turn.
     MESSAGE="You are working in the git checkout at /data/repo, on branch $BRANCH_NAME. Carry the task through to finished, verified work in this one run, following your working practices. Your changes are committed and proposed as a pull request when you finish. If the task needs no code change, answer it and say so.
@@ -191,6 +195,9 @@ out of date, so check it, but start here before searching.
 $RELEVANT_CODE"
     fi
 fi
+
+# Where the turn started, so a spec turn's other changes can be thrown away.
+START_SHA=$(git rev-parse HEAD)
 
 # The agent runs as the unprivileged "node" user, with the GitHub token
 # removed from its environment. It never needs the token: this script does
@@ -357,10 +364,30 @@ except OSError:
 print(last_message.strip()[-4000:])
 PY
 
+    if [ "${SPEC_MODE:-}" = "draft" ]; then
+        # Keep the spec, drop everything else the agent changed or committed.
+        DISCARDED=$( { git diff --name-only "$START_SHA"; git ls-files --others --exclude-standard; } \
+            | grep -vxF "$SPEC_PATH" | sort -u | head -20 | tr '\n' ' ' || true)  # none is the usual case
+        SPEC_TMP=$(mktemp)
+        if [ -f "$SPEC_PATH" ]; then cp "$SPEC_PATH" "$SPEC_TMP"; fi
+        git reset -q --hard "$START_SHA"
+        git clean -qfd
+        if [ -s "$SPEC_TMP" ]; then
+            mkdir -p "$(dirname "$SPEC_PATH")"
+            cp "$SPEC_TMP" "$SPEC_PATH"
+        else
+            echo "FACTORY_SPEC_MISSING=1"
+            AGENT_EXIT=1
+        fi
+        if [ -n "$DISCARDED" ]; then
+            echo "FACTORY_SPEC_DISCARDED=$DISCARDED"
+        fi
+    fi
+
     if [ -n "$(git status --porcelain)" ]; then
         git add -A
         {
-            echo "${PR_TITLE:-agent: changes for $BRANCH_NAME}"
+            echo "${COMMIT_TITLE:-${PR_TITLE:-agent: changes for $BRANCH_NAME}}"
             if [ -s /data/pr_summary.md ]; then echo; cat /data/pr_summary.md; fi
         } > /data/commit_message.txt
         git commit -F /data/commit_message.txt >/dev/null
@@ -388,7 +415,10 @@ PY
         } > /data/pr_body.md
 
         set +e
-        PR_OUTPUT=$(gh pr create --repo "$REPO" --head "$BRANCH_NAME" \
+        # A spec opens the PR as a draft; it's marked ready once the spec is built.
+        DRAFT_FLAG=()
+        if [ "${SPEC_MODE:-}" = "draft" ]; then DRAFT_FLAG=(--draft); fi
+        PR_OUTPUT=$(gh pr create --repo "$REPO" --head "$BRANCH_NAME" "${DRAFT_FLAG[@]}" \
             --title "${PR_TITLE:-Agent: $BRANCH_NAME}" \
             --body-file /data/pr_body.md 2>&1)
         PR_STATUS=$?
