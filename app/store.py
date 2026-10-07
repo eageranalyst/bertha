@@ -926,6 +926,20 @@ def list_tool_calls(session_id: int) -> list[dict[str, Any]]:
     return calls
 
 
+def last_github_change(repo: str, issue_number: int) -> float | None:
+    """When Bertha last changed this issue (a successful, not undone write)."""
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT MAX(created_at) AS at FROM tool_calls
+            WHERE repo = ? AND issue_number = ? AND ok = 1 AND undone_at IS NULL
+              AND tool IN ('update_issue', 'comment_issue', 'close_issue')
+            """,
+            (repo, issue_number),
+        ).fetchone()
+        return row["at"] if row else None
+
+
 def mark_tool_call_undone(call_id: int) -> None:
     with _connect() as conn:
         conn.execute("UPDATE tool_calls SET undone_at = ? WHERE id = ?", (time.time(), call_id))

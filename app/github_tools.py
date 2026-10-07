@@ -41,7 +41,7 @@ MAX_LIST = 100
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "list_issues",
-        "description": "List issues in this repository (not pull requests). Returns number, title, state, labels, update time, comment count and the start of the body.",
+        "description": "List issues in this repository (not pull requests), with what grooming triage needs: labels, body length, which house sections (why, proposed_changes, out_of_scope) the body has, how many file:line citations, the last comment (author, time, whether by this bot), when Bertha last changed it, and a suggested triage: thin (needs fleshing out), well_formed, or unchanged_since_groom.",
         "inputSchema": {"type": "object", "properties": {
             "state": {"type": "string", "enum": ["open", "closed", "all"], "default": "open"},
             "labels": {"type": "string", "description": "Comma-separated label names to filter by"},
@@ -149,10 +149,7 @@ def call_tool(grant: dict, name: str, args: dict) -> Any:
             if args.get("since"):
                 params["since"] = args["since"]
             issues = _check(client.get(f"/repos/{repo}/issues", params=params))
-            return [{"number": i["number"], "title": i["title"], "state": i["state"],
-                     "labels": [l["name"] for l in i["labels"]], "updated_at": i["updated_at"],
-                     "comments": i["comments"], "body_start": (i.get("body") or "")[:300]}
-                    for i in issues if "pull_request" not in i]
+            return [_triage(client, repo, i) for i in issues if "pull_request" not in i]
 
         if name == "get_issue":
             issue = _issue(client, repo, int(number))
@@ -176,6 +173,54 @@ def call_tool(grant: dict, name: str, args: dict) -> Any:
             return _write(client, grant, name, args)
 
     raise ToolError(f"unknown tool {name}")
+
+
+# The house issue shape (your-repo's groom-backlog skill) and code citations.
+SECTIONS = {"why": r"^#+\s*why\b", "proposed_changes": r"^#+\s*proposed changes\b",
+            "out_of_scope": r"^#+\s*out of scope\b"}
+CITATION = re.compile(r"[\w./-]+\.(?:py|ts|tsx|js|jsx|sql|toml|json|yml|yaml|md|go|rs|rb):\d+")
+# Thin means missing the house shape. Length only decides it for a body too
+# short to say anything, since a concise issue with all three sections is fine.
+THIN_BODY_CHARS = 200
+# GitHub bumps updated_at for our own edits a moment after we make them.
+OWN_EDIT_SLACK_SECONDS = 300
+
+
+def _triage(client: httpx.Client, repo: str, issue: dict) -> dict:
+    """An issue's summary for grooming triage: its shape, its citations, who
+    spoke last, and whether anything changed since Bertha last groomed it,
+    with a suggested triage worked out by fixed rules."""
+    from datetime import datetime
+
+    body = issue.get("body") or ""
+    sections = [name for name, pattern in SECTIONS.items() if re.search(pattern, body, re.I | re.M)]
+    last_comment = None
+    if issue.get("comments"):
+        comments = _check(client.get(f"/repos/{repo}/issues/{issue['number']}/comments", params={"per_page": 100}))
+        if comments:
+            last = comments[-1]
+            last_comment = {"author": last["user"]["login"], "at": last["created_at"],
+                            "by_bot": last["user"]["login"] == get_settings().github_bot_username}
+    last_groomed = store.last_github_change(repo, issue["number"])
+    updated = datetime.fromisoformat(issue["updated_at"].replace("Z", "+00:00")).timestamp()
+    unchanged = last_groomed is not None and updated <= last_groomed + OWN_EDIT_SLACK_SECONDS
+
+    # Unchanged wins over thin: an issue still thin because last night could
+    # only ask questions shouldn't get the same questions again tonight.
+    if unchanged:
+        triage = "unchanged_since_groom"
+    elif len(body) < THIN_BODY_CHARS or len(sections) < 2:
+        triage = "thin"
+    else:
+        triage = "well_formed"
+    return {
+        "number": issue["number"], "title": issue["title"], "state": issue["state"],
+        "labels": [l["name"] for l in issue["labels"]], "updated_at": issue["updated_at"],
+        "body_length": len(body), "sections": sections, "citations": len(CITATION.findall(body)),
+        "comments": issue.get("comments", 0), "last_comment": last_comment,
+        "last_groomed_at": datetime.fromtimestamp(last_groomed).isoformat() + "Z" if last_groomed else None,
+        "triage": triage,
+    }
 
 
 def _write(client: httpx.Client, grant: dict, name: str, args: dict) -> Any:

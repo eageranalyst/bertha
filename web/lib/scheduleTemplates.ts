@@ -8,19 +8,24 @@ export const SCHEDULE_TEMPLATES: { name: string; label: string; prompt: string; 
 
 Follow the repository's own grooming rules: the groom-backlog skill in .claude/skills/groom-backlog/SKILL.md if there is one, and the label vocabulary in README's Commit conventions section. Where the skill runs \`gh\` or its scripts, use the github tools instead (list_issues, get_issue, list_labels, update_issue, comment_issue, close_issue, github_get); there is no gh CLI or token here.
 
-Work issue by issue, each in its own worker subagent, so your own context stays small:
-1. Read the grooming skill and README's label vocabulary, and call list_issues and list_labels. Don't call get_issue yourself.
-2. For each open issue, use the task tool to start the worker subagent with: the issue number, the rules below (including the exact label vocabulary), and "report in three lines: what the issue is about in one sentence, what you changed, and anything you couldn't do".
-3. Collect the workers' reports, then look across them for duplicates (a worker only sees its own issue): for any pair, close the newer issue as a duplicate of the older, with a comment saying why.
+Do only the work each issue needs. Most issues are already groomed; rewriting a good issue adds nothing and churns it.
 
-The rules for each issue (give these to every worker):
-- Leave the issue alone if it's already in good shape.
-- Flesh out a thin body into the house shape (Why / Proposed changes / Out of scope), with evidence read from the code: cite files and lines, and say what is there today.
-- Apply the standard labels: exactly one \`type:\` and at least one \`area:\` label from README, plus \`security\` where it applies. Replace GitHub's stock \`bug\` and \`enhancement\`.
-- Stale: if the code shows it's already done, close it as completed with the evidence. If it may no longer be wanted, comment asking rather than closing.
-- Put questions the code can't answer in one comment on the issue.
+1. Read the grooming skill and README's label vocabulary, then call list_issues and list_labels. list_issues gives each issue a suggested triage; use it:
+   - unchanged_since_groom: nothing has happened since the last groom. Skip it entirely.
+   - well_formed: has the house shape. Check it yourself, without a worker and without get_issue unless needed: fix its labels if they're wrong; if its last comment is a human's reply to a question the bot asked, it needs the answer folded in (treat it as thin); if it has citations, it needs a citation check (step 2).
+   - thin: needs fleshing out (step 2).
+2. Give each issue that needs real work (thin, an answer to fold in, or a citation check) to its own worker subagent with the task tool. Pass: the issue number, which job it is, the rules below with the exact label vocabulary, and "report in three lines: what the issue is about in one sentence, what you changed, anything you couldn't do".
+3. Look across all the issues' titles and the workers' reports for duplicates (a worker only sees its own issue): close the newer as a duplicate of the older, with a comment saying why.
 
-Finish with a short report: for each issue you changed, what changed and why, the duplicates you closed, and anything you couldn't do.`,
+Rules for workers:
+- Thin issue: flesh out the body into the house shape (Why / Proposed changes / Out of scope) with evidence read from the code: cite files and lines, and say what is there today. Ask what the code can't answer in one comment.
+- Answer to fold in: update the body with the decision (the skill's "fold decisions back in" step). Don't re-ask anything that's been answered.
+- Citation check: read only the cited files and symbols, not the wider code. Fix a citation that has drifted. If the code shows the work is already done, close the issue as completed with the evidence. Otherwise change nothing.
+- Never rewrite a body that's already in good shape just to restate it. Change only what's wrong or missing.
+- Never repeat a question already asked in an earlier comment. Comment only with a new question, or not at all.
+- Labels: exactly one \`type:\` and at least one \`area:\` label from README, plus \`security\` where it applies. Replace GitHub's stock \`bug\` and \`enhancement\`.
+
+Finish with a short report: how many issues you skipped, checked and worked on; for each issue you changed, what changed and why; the duplicates you closed; anything you couldn't do.`,
   },
 ];
 
