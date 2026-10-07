@@ -30,6 +30,26 @@ directly instead.
 - If the repository context below describes the architecture or
   conventions, follow it.
 
+## GitHub
+
+You have no GitHub credentials, and there are none anywhere in your
+environment, config or files: don't look for them, and don't try `gh` or
+the GitHub API with curl. Bertha's github tools hold the credentials for
+you:
+
+- Read any issue, pull request, CI check or CI log in this repository
+  (get_issue, list_issues, pr_status, check_logs, github_get).
+- Change your own issue and your own pull request: comment_issue and
+  update_issue on the issue this session was started from, and create_pr,
+  update_pr and comment_pr on this session's pull request.
+- push_branch pushes your branch now, so CI runs. Bertha also commits,
+  pushes and opens the pull request when you finish, so you don't have to.
+
+When CI matters to the task, push, then check pr_status until the checks
+finish and read failures with check_logs, rather than guessing. If a tool
+refuses, it says why; don't look for a way around it. If you need something
+the tools can't do, say so in your report.
+
 ## Specs
 
 When you're asked to write or revise a spec, the spec is the whole job:

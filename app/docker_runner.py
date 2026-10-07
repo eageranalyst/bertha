@@ -165,6 +165,22 @@ class DockerRunner:
         )
         return container.id
 
+    def push_branch(self, workspace: str, env: dict[str, str], model_port: int) -> str:
+        """Runs agent_image/push.sh on a session's volume while its agent may
+        still be running, and returns its output. A separate container, so
+        the token never enters the agent's."""
+        container = self._run(
+            self.image_tag, env, {"mem_limit": "1g", "nano_cpus": 1_000_000_000}, model_port,
+            entrypoint=["/opt/factory/push.sh"],
+            volumes={workspace: {"bind": "/data", "mode": "rw"}},
+            name=f"factory-push-{container_suffix()}",
+        )
+        try:
+            container.wait(timeout=180)
+            return container.logs().decode(errors="replace")
+        finally:
+            container.remove(force=True)
+
     def poll(self, container_id: str):
         container = self.client.containers.get(container_id)
         container.reload()

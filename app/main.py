@@ -11,6 +11,7 @@ keeps this simple: nothing here needs to be async.
 
 import logging
 import os
+import re
 import threading
 from collections.abc import Callable
 from contextlib import asynccontextmanager
@@ -98,6 +99,8 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("FACTORY_EGRESS=open: agent containers can reach the host and the internet")
     gh = GitHubClient(settings.github_token, settings.github_bot_username)
+    # The push_branch tool runs its helper container through the same runner.
+    github_tools.configure(runner, settings.model_host_port[1])
     scheduler = Scheduler(settings, runner, gh)
     fast_thread = TickThread("fast", scheduler.tick_fast, settings.fast_poll_interval_seconds)
     slow_thread = TickThread("slow", scheduler.tick_slow, settings.poll_interval_seconds)
@@ -217,6 +220,8 @@ def api_get_logs(session_id: int):
 def api_send_message(session_id: int, body: MessageIn):
     _get_or_404(session_id)
     store.set_pending_message(session_id, body.text)
+    # You've stepped in, so Bertha's automatic CI fixes start counting again.
+    store.update_session(session_id, ci_fix_attempts=0)
     store.append_log(session_id, "user_message", body.text)
     return store.get_session(session_id)
 
@@ -309,6 +314,20 @@ def _derive_title(prompt: str | None) -> str:
     return text or "New session"
 
 
+def _issue_reference(prompt: str, repo: str) -> int | None:
+    """The one issue a code prompt is about, if it plainly names one: an issue
+    URL in the repo, "issue 12", or a bare #12 in a short prompt. A longer
+    prompt mentioning #12 in passing isn't linked, since the PR would close
+    it; the agent can still read it."""
+    clear = {int(n) for n in re.findall(rf"github\.com/{re.escape(repo)}/issues/(\d+)", prompt, re.I)}
+    clear |= {int(n) for n in re.findall(r"\bissue\s+#?(\d+)\b", prompt, re.I)}
+    bare = {int(n) for n in re.findall(r"(?<![\w/&])#(\d+)\b", prompt)}
+    numbers = clear | bare
+    if len(numbers) != 1:
+        return None
+    return numbers.pop() if clear or len(prompt) <= 200 else None
+
+
 @app.post("/api/sessions")
 def api_new_session(body: NewSessionIn):
     if body.session_type not in ("ask", "code"):
@@ -316,17 +335,29 @@ def api_new_session(body: NewSessionIn):
     if body.spec_first and (body.session_type != "code" or not body.repo):
         raise HTTPException(400, "a spec-first session needs to be a code session with a repo")
     title = _derive_title(body.prompt)
+    prompt = (body.prompt or "").strip()
+    linked_from_prompt = False
+    if body.issue_number is not None and (body.session_type != "code" or not body.repo):
+        raise HTTPException(400, "linking an issue needs a code session with a repo")
+    if body.issue_number is None and body.session_type == "code" and body.repo:
+        body.issue_number = _issue_reference(prompt, body.repo)
+        linked_from_prompt = body.issue_number is not None
     if body.issue_number is not None:
-        if body.session_type != "code" or not body.repo:
-            raise HTTPException(400, "linking an issue needs a code session with a repo")
         gh: GitHubClient = _state["gh"]  # type: ignore[assignment]
         try:
             issue = gh.get_issue(body.repo, body.issue_number)
         except Exception:
-            raise HTTPException(400, f"couldn't find issue #{body.issue_number} in {body.repo}")
-        title = issue["title"]
-        if not (body.prompt or "").strip():
-            body.prompt = f"{issue['title']}\n\n{issue['body']}".strip()
+            issue = None
+        if issue is None or issue["pull_request"]:
+            if not linked_from_prompt:
+                raise HTTPException(400, f"#{body.issue_number} isn't an issue in {body.repo}")
+            body.issue_number, linked_from_prompt = None, False  # a PR, or a number that isn't one
+        else:
+            issue_text = f"{issue['title']}\n\n{issue['body']}".strip()
+            # The issue's text goes with the task, so the agent starts with it.
+            body.prompt = f"{prompt}\n\n---\n\nIssue #{issue['number']}: {issue_text}" if prompt else issue_text
+            if not prompt or not linked_from_prompt or len(prompt) <= 80:
+                title = issue["title"]
     settings = get_settings()
     if body.model:
         chosen = store.get_model(body.model)
@@ -350,7 +381,9 @@ def api_new_session(body: NewSessionIn):
         spec_first=body.spec_first,
     )
     store.append_log(session_id, "system", f"Started a new {body.session_type} session"
-                     + (", spec first" if body.spec_first else ""))
+                     + (", spec first" if body.spec_first else "")
+                     + (f", linked to issue #{body.issue_number}" if body.issue_number else "")
+                     + (" (found in the prompt)" if linked_from_prompt else ""))
     if body.prompt:
         store.append_log(session_id, "user_message", body.prompt)
     return store.get_session(session_id)

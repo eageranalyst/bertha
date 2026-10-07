@@ -222,19 +222,54 @@ questions in comments.
 
 ### GitHub tools
 
-Agents have no GitHub token. A session (or schedule) with **GitHub tools**
-on gets Bertha's GitHub tool server (`app/github_tools.py`), an MCP server
-that holds the token and gives the agent tools instead: list, read, edit
-(title, body, labels), comment on and close issues, and read-only access to
-the repo's API. Each turn gets its own key, scoped to the session's repo and
-revoked when the turn ends.
+Agents have no GitHub token. Every session with a repo gets Bertha's GitHub
+tool server instead (`app/github_tools.py`), an MCP server that holds the
+token. Each turn gets its own key, scoped to the session's repo and revoked
+when the turn ends. What the key allows:
 
-Changes apply directly, so there are guardrails: only issues in the
-session's repo, no deletes, only labels the repo already has, and per-turn
-limits on edits and closures (Settings). Every change is recorded with the
-values before it, and the session's **GitHub changes** panel can undo a
-run's changes. The bot's token needs **Issues: read and write** on repos
-where this is used.
+| | Every repo session | With **GitHub tools** on (e.g. backlog groom) |
+|---|---|---|
+| Read any issue, label, PR, CI check and CI log | ✅ | ✅ |
+| Edit and comment on its **own issue** (the one it was started from) | ✅ | ✅ |
+| Edit, comment on and close any issue | | ✅ |
+| Open, edit and comment on its **own PR**; push its branch mid-turn | ✅ | ✅ |
+
+Dry runs only read. "Own" comes from the session record, not from the agent.
+Pushes run in a separate short-lived container (`agent_image/push.sh`), so
+the agent's container never holds the token: the agent's changes are
+bundled without the token and pushed from a fresh repository, to the
+session's branch only and never forced. Bertha still commits, pushes and
+opens the PR at the end of every turn, so the tools are optional. A spec
+under review can't be pushed or marked ready by the agent.
+
+Changes apply directly, so there are guardrails: only the session's repo, no
+deletes or merges, only labels the repo already has, and per-turn limits on
+edits, closures and pushes (Settings). Every change except a push is
+recorded with the values before it, and the session's **GitHub changes**
+panel can undo a run's changes.
+
+Linking an issue: give an issue number when starting a session, or name one
+plainly in the prompt ("issue 42", an issue URL, or `#42` in a short
+prompt). The issue's text goes with the task, the PR closes it, and it
+becomes the session's own issue.
+
+**CI.** After a turn pushes to its PR, Bertha watches the PR's CI. When it
+fails, it starts a turn with the failing jobs' trimmed logs, at most twice in
+a row; after that the session is flagged for you. Sending a message, or CI
+passing, resets the count. A spec-first PR is marked ready for review once
+CI passes.
+
+The bot's token needs **Issues: read and write**, **Pull requests: read and
+write**, **Contents: read and write** and **Actions: read** on repos where
+this is used. Without Actions: read, Bertha can't see CI, and says so in the
+session.
+
+**Git with the token.** The agent can write its whole workspace, including
+`.git` and `$HOME`, so the startup script never runs git with the token under
+anything the agent wrote. It stops the agent's leftover processes, uses a
+global git and `gh` config outside the workspace, and rewrites the repo's
+`.git/config` with hooks off before committing and pushing
+(`agent_image/git_safe.sh`).
 
 ## Agent performance
 

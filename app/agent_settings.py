@@ -84,7 +84,7 @@ SETTINGS: tuple[Setting, ...] = (
     Setting(
         key="github_max_edits",
         label="GitHub edits per turn",
-        help="For sessions with GitHub tools: issue edits and comments one turn may make. Further changes are refused.",
+        help="Issue and pull request edits and comments one turn may make. Further changes are refused.",
         default=30,
         minimum=0,
         maximum=500,
@@ -93,8 +93,17 @@ SETTINGS: tuple[Setting, ...] = (
     Setting(
         key="github_max_closes",
         label="GitHub closures per turn",
-        help="For sessions with GitHub tools: issues one turn may close (as done, stale or duplicate).",
+        help="For sessions with full GitHub tools (e.g. backlog grooming): issues one turn may close (as done, stale or duplicate).",
         default=5,
+        minimum=0,
+        maximum=100,
+        env=None,
+    ),
+    Setting(
+        key="github_max_pushes",
+        label="GitHub pushes per turn",
+        help="Times one turn may push its branch mid-turn (to run CI, say). Bertha's push at the end of the turn doesn't count.",
+        default=10,
         minimum=0,
         maximum=100,
         env=None,

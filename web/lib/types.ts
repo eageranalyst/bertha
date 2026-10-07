@@ -96,8 +96,17 @@ export interface GitHubCall {
   repo: string;
   issue_number: number | null;
   args: Record<string, unknown>;
-  before: { title?: string; body?: string; labels?: string[]; state?: string } | null;
-  after: { title?: string; body?: string; labels?: string[]; state?: string; comment_id?: number } | null;
+  /** An issue's number, or for pull request tools, the pull request's. */
+  before: { title?: string; body?: string; labels?: string[]; state?: string; draft?: boolean } | null;
+  after: {
+    title?: string;
+    body?: string;
+    labels?: string[];
+    state?: string;
+    draft?: boolean;
+    comment_id?: number;
+    sha?: string;
+  } | null;
   ok: boolean;
   error: string | null;
   undone_at: number | null;

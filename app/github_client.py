@@ -80,7 +80,8 @@ class GitHubClient:
     def get_issue(self, repo_full_name: str, issue_number: int) -> dict[str, Any]:
         repo = self._gh.get_repo(repo_full_name)
         issue = repo.get_issue(issue_number)
-        return {"number": issue.number, "title": issue.title, "body": issue.body or ""}
+        return {"number": issue.number, "title": issue.title, "body": issue.body or "",
+                "pull_request": issue.pull_request is not None}
 
     def new_pr_comments(
         self, repo_full_name: str, pr_number: int, since_comment_id: int, since: float | None = None,

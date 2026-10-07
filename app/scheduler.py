@@ -45,7 +45,7 @@ import httpx
 
 from datetime import datetime, timezone
 
-from . import agent_settings, code_index, cron, specs
+from . import agent_settings, code_index, cron, github_tools, specs
 from . import models as model_registry
 from . import store
 from .routing import route as route_turn
@@ -136,6 +136,11 @@ def repo_context(repo: str) -> str:
         )
     return "\n".join(parts) if len(parts) > 4 else ""
 BUSY_OR_QUEUED = {"running", "queued"}
+# Turns Bertha starts to fix failing CI before handing it to you; reset when
+# CI passes or you send a message.
+CI_FIX_ATTEMPTS = 2
+# A push with no checks after this long is taken as a repo without CI.
+CI_GRACE_SECONDS = 600
 
 
 class Scheduler:
@@ -168,6 +173,7 @@ class Scheduler:
         """
         self._discover_new_issues()
         self._check_spec_reviews()
+        self._check_ci()
         self._check_sleeping()
 
     def _routed(self, session: dict[str, Any], prompt: str, session_type: str) -> dict[str, Any]:
@@ -255,15 +261,20 @@ class Scheduler:
                 store.update_session(session["id"], deadline_at=None, attention="failed")
 
     def _github_tools_env(self, session: dict[str, Any]) -> dict[str, str]:
-        """A fresh key for this turn's GitHub tools, when the session has them.
-        The previous turn's key is revoked first; this one is revoked when the
-        turn ends (see _settle and stop_turn)."""
-        if not session.get("github_tools") or not session.get("repo"):
+        """A fresh key for this turn's GitHub tools. Every session with a repo
+        gets them: dry runs to read, others also to change their own issue
+        and pull request and push their branch, and sessions with GitHub tools
+        turned on to change any issue (app/github_tools.py). The previous
+        turn's key is revoked first; this one is revoked when the turn ends
+        (see _settle and stop_turn)."""
+        if not session.get("repo"):
             return {}
+        scope = "read" if session.get("dry_run") else ("full" if session.get("github_tools") else "own")
         store.revoke_grants(session["id"])
         limits = agent_settings.current()
         key = store.create_grant(session["id"], session["repo"],
-                                 limits["github_max_edits"], limits["github_max_closes"])
+                                 limits["github_max_edits"], limits["github_max_closes"],
+                                 scope=scope, max_pushes=limits["github_max_pushes"])
         host = "egress" if self.settings.egress_isolation else "host.docker.internal"
         return {"GITHUB_TOOLS_URL": f"http://{host}:{self.settings.tools_port}/mcp", "GITHUB_TOOLS_KEY": key}
 
@@ -574,6 +585,8 @@ class Scheduler:
         store.update_session(session["id"], stream_log_id=None)
         exit_code = container.attrs.get("State", {}).get("ExitCode", 1)
         self.runner.remove(session["container_id"])
+        # Fresh: the agent may have opened its PR with its tools mid-turn.
+        session = store.get_session(session["id"]) or session
 
         pr_number = session["pr_number"]
         harness_session_id = session["harness_session_id"]
@@ -605,6 +618,9 @@ class Scheduler:
             # no repo attached: nothing to push, so "ran cleanly" is success
             new_status = "idle"
         attention = {"failed": "failed", "pr_open": "review", "idle": "replied"}.get(new_status)
+        # A turn that pushed to its PR: watch the CI that push sets off.
+        watch_ci = ({"ci_sha": ""} if new_status == "pr_open" and "FACTORY_PUSHED=1" in logs
+                    and not session.get("dry_run") else {})
         self._settle(
             session["id"],
             new_status,
@@ -613,6 +629,7 @@ class Scheduler:
             pr_number=pr_number,
             harness_session_id=harness_session_id,
             last_activity_at=time.time(),
+            **watch_ci,
         )
         logger.info(
             "session %s turn finished: exit=%s pr=%s -> %s",
@@ -647,7 +664,7 @@ class Scheduler:
             return
         prompt = next(
             (l["content"] for l in reversed(store.list_logs(session["id"]))
-             if l["kind"] in ("user_message", "pr_comment")),
+             if l["kind"] in ("user_message", "pr_comment", "ci_failure")),
             session["title"] or "",
         )
         task = {"session_type": "code", "has_repo": bool(session["repo"]), "prompt": prompt}
@@ -707,6 +724,83 @@ class Scheduler:
             store.set_pending_message(session["id"], combined)
             store.append_log(session["id"], "pr_comment", combined)
             logger.info("session %s woken by PR comment(s)", session["id"])
+
+    # -- CI on a session's pull request ---------------------------------
+
+    def _check_ci(self) -> None:
+        """Watches CI on what sessions push. A failure starts a turn to fix
+        it, up to CI_FIX_ATTEMPTS in a row; after that the session waits on
+        you. A spec-first PR is marked ready for review once CI passes."""
+        for session in store.list_sessions():
+            if (session.get("ci_sha") is None or not session["pr_number"] or not session["repo"]
+                    or session.get("dry_run") or session["status"] not in ("pr_open", "sleeping", "idle")
+                    or session.get("spec_phase") in ("drafting", "review", "abandoned")):
+                continue
+            try:
+                report = github_tools.ci_failure_report(session["repo"], session["pr_number"])
+            except github_tools.ToolError as exc:
+                if str(exc) == github_tools.CI_PERMISSION_HELP:
+                    store.append_log(session["id"], "system", f"Not watching CI on PR #{session['pr_number']}: {exc}")
+                    store.update_session(session["id"], ci_sha=None)
+                else:
+                    logger.warning("couldn't read CI for session %s: %s", session["id"], exc)
+                continue
+            except Exception:
+                logger.exception("failed reading CI for session %s", session["id"])
+                continue
+            if report["pr_state"] != "open":
+                store.update_session(session["id"], ci_sha=None)  # merged or closed: stop watching
+                continue
+            if report["sha"] == session["ci_sha"] or report["state"] == "pending":
+                continue
+            if report["state"] == "none" and time.time() - session["last_activity_at"] < CI_GRACE_SECONDS:
+                continue  # CI may not have picked the push up yet
+            store.update_session(session["id"], ci_sha=report["sha"])
+            if report["state"] == "failed":
+                self._ci_failed(session, report)
+            else:
+                self._ci_passed(session, report)
+
+    def _ci_failed(self, session: dict[str, Any], report: dict[str, Any]) -> None:
+        names = ", ".join(f"`{c['name']}`" for c in report["failed"])
+        attempts = session.get("ci_fix_attempts") or 0
+        if attempts >= CI_FIX_ATTEMPTS:
+            store.append_log(session["id"], "system",
+                             f"CI is still failing on PR #{session['pr_number']} ({names}) after {attempts} "
+                             "automatic fixes, so it's over to you")
+            store.update_session(session["id"], attention="failed")
+            if session.get("spec_phase") == "built":
+                self._spec_pr_update(session, "ci_failing")
+            return
+        jobs = "\n\n".join(
+            f"### `{c['name']}` ({c['conclusion']}, job {c['id']})\n\n```\n{c['log'][-6000:]}\n```"
+            for c in report["failed"])
+        message = (
+            f"CI failed on this session's pull request #{session['pr_number']} "
+            f"(commit {report['sha'][:7]}): {names}.\n\n{jobs}\n\n"
+            "Find the cause and fix it, then check your fix the way CI does. If the failure isn't caused by "
+            "this branch's changes (a flaky test, or something already broken on the base branch), don't "
+            "change unrelated code to hide it: say so in your report."
+        )
+        store.update_session(session["id"], ci_fix_attempts=attempts + 1)
+        store.set_pending_message(session["id"], message)
+        store.append_log(session["id"], "ci_failure", message)
+        logger.info("session %s: CI failed, fix attempt %s", session["id"], attempts + 1)
+
+    def _ci_passed(self, session: dict[str, Any], report: dict[str, Any]) -> None:
+        if session.get("ci_fix_attempts"):
+            store.append_log(session["id"], "system", f"CI passes on PR #{session['pr_number']} now")
+        store.update_session(session["id"], ci_fix_attempts=0)
+        if session.get("spec_phase") == "built" and report["draft"]:
+            try:
+                self.gh.mark_ready(session["repo"], session["pr_number"])
+            except Exception:
+                logger.exception("failed marking session %s's PR ready", session["id"])
+                return
+            store.append_log(session["id"], "system",
+                             "CI " + ("passed" if report["state"] == "passed" else "has no checks")
+                             + f"; PR #{session['pr_number']} is marked ready for review")
+            self._spec_pr_update(session, "built")
 
     # -- spec-first sessions (app/specs.py) -----------------------------
 
@@ -773,10 +867,9 @@ class Scheduler:
             if status == "failed":
                 self._spec_pr_update(session, "build_failed")
                 return
-            store.update_session(session["id"], spec_phase="built")
-            if session["pr_number"] and not session.get("dry_run"):
-                self.gh.mark_ready(session["repo"], session["pr_number"])
-            self._spec_pr_update(session, "built")
+            # Ready for review once CI passes: _check_ci marks it ready then.
+            store.update_session(session["id"], spec_phase="built", ci_sha="")
+            self._spec_pr_update(session, "checking")
 
     def _spec_url(self, session: dict[str, Any]) -> str:
         return f"https://github.com/{session['repo']}/blob/{session['branch_name']}/{session['spec_path']}"
@@ -789,7 +882,8 @@ class Scheduler:
             return
         repo, pr = session["repo"], session["pr_number"]
         label = {"review": "spec-review", "revising": "spec-review",
-                 "building": "building", "build_failed": "building"}.get(state)
+                 "building": "building", "build_failed": "building",
+                 "checking": "building", "ci_failing": "building"}.get(state)
         line = specs.status_line(state, session.get("spec_path") or "", repo, session["branch_name"] or "")
         try:
             self.gh.set_pr_labels(repo, pr, label, specs.LABELS)

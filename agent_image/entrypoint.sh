@@ -136,11 +136,10 @@ ${MCP_BLOCK}
 }
 EOF
 
-git config --global user.name "${BOT_NAME:-factory-agent}"
-git config --global user.email "${BOT_EMAIL:-factory-agent@users.noreply.github.com}"
-git config --global credential.helper \
-    '!f() { echo "username=x-access-token"; echo "password=$GITHUB_TOKEN"; }; f'
-git config --global --add safe.directory /data/repo
+# Every git command this script runs holds the token, so none of them may
+# read config or hooks the agent wrote (see git_safe.sh).
+source /opt/factory/git_safe.sh
+write_global_git_config
 
 cd /data
 if [ -n "$REPO" ]; then
@@ -148,6 +147,7 @@ if [ -n "$REPO" ]; then
         echo "=== Cloning $REPO ==="
         git clone "https://github.com/${REPO}.git" repo
     fi
+    reset_repo_git_config /data/repo
     cd repo
     if git ls-remote --exit-code --heads origin "$BRANCH_NAME" >/dev/null 2>&1; then
         git fetch origin "$BRANCH_NAME"
@@ -345,6 +345,11 @@ if [ -n "$SESSION" ]; then
 fi
 
 if [ -n "$REPO" ]; then
+    # The agent has had the checkout to itself. Before running git with the
+    # token, stop anything it left running and take the git config back
+    # (see git_safe.sh).
+    pkill -KILL -u node 2>/dev/null || true
+    reset_repo_git_config /data/repo
     # The agent's final report: the commit body and the pull request description.
     python3 - > /data/pr_summary.md <<'PY' || true
 import json
@@ -424,8 +429,10 @@ PY
         PR_STATUS=$?
         set -e
         echo "$PR_OUTPUT"
-        if [ $PR_STATUS -eq 0 ]; then
-            PR_NUM=$(echo "$PR_OUTPUT" | grep -oE '/pull/[0-9]+' | grep -oE '[0-9]+' | tail -1)
+        # When the agent already opened the PR with its tools, gh fails with
+        # "already exists" and that PR's URL, which is just as good.
+        PR_NUM=$(echo "$PR_OUTPUT" | grep -oE '/pull/[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+        if [ -n "$PR_NUM" ]; then
             echo "FACTORY_PR_NUMBER=${PR_NUM}"
         else
             # Not fatal: the branch is pushed and the next turn retries the PR.

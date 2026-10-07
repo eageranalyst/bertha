@@ -8,10 +8,33 @@ const VERBS: Record<string, string> = {
   update_issue: "Edited",
   comment_issue: "Commented on",
   close_issue: "Closed",
+  push_branch: "Pushed",
+  create_pr: "Opened PR",
+  update_pr: "Edited PR",
+  comment_pr: "Commented on PR",
 };
+
+const PR_TOOLS = new Set(["push_branch", "create_pr", "update_pr", "comment_pr"]);
+
+function target(call: GitHubCall) {
+  if (call.issue_number == null) return null;
+  const kind = PR_TOOLS.has(call.tool) ? "pull" : "issues";
+  return (
+    <a href={`https://github.com/${call.repo}/${kind}/${call.issue_number}`} target="_blank" rel="noreferrer">
+      #{call.issue_number}
+    </a>
+  );
+}
 
 function describe(call: GitHubCall): string {
   const parts: string[] = [];
+  if (call.tool === "push_branch" && call.after?.sha) parts.push(call.after.sha.slice(0, 7));
+  if (call.tool === "create_pr" && call.after) parts.push(call.after.draft ? "draft" : "ready for review");
+  if (call.tool === "update_pr" && call.before && call.after) {
+    if (call.before.title !== call.after.title) parts.push("title");
+    if (call.before.body !== call.after.body) parts.push("body");
+    if (call.before.draft !== call.after.draft) parts.push(call.after.draft ? "back to draft" : "marked ready");
+  }
   if (call.tool === "update_issue" && call.before && call.after) {
     if (call.before.title !== call.after.title) parts.push("title");
     if (call.before.body !== call.after.body) parts.push("body");
@@ -49,7 +72,8 @@ export function GitHubChanges({ session }: { session: Session }) {
 
   const writes = calls.filter((c) => c.tool in VERBS);
   if (writes.length === 0) return null;
-  const undoable = writes.filter((c) => c.ok && !c.undone_at);
+  // Pushes can't be undone; everything else can.
+  const undoable = writes.filter((c) => c.ok && !c.undone_at && c.tool !== "push_branch");
   const running = session.status === "running" || session.status === "queued";
 
   async function undo() {
@@ -76,10 +100,7 @@ export function GitHubChanges({ session }: { session: Session }) {
       <ul>
         {writes.map((c) => (
           <li key={c.id} className={c.ok ? (c.undone_at ? "undone" : "") : "refused"}>
-            <a href={`https://github.com/${c.repo}/issues/${c.issue_number}`} target="_blank" rel="noreferrer">
-              #{c.issue_number}
-            </a>{" "}
-            {VERBS[c.tool]} {c.ok ? describe(c) : `(refused: ${c.error})`}
+            {VERBS[c.tool]} {target(c)} {c.ok ? describe(c) : `(refused: ${c.error})`}
             {c.undone_at ? " · undone" : ""}
           </li>
         ))}

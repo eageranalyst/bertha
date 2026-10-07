@@ -23,6 +23,7 @@ function fmtTime(ts: number | null | undefined) {
 function speakerFor(kind: string, content: string): { role: Role; label: string } {
   if (kind === "user_message") return { role: "user", label: "You" };
   if (kind === "ask_response") return { role: "agent", label: "Agent" };
+  if (kind === "ci_failure") return { role: "reviewer", label: "CI failed" };
   if (kind === "pr_comment") {
     const author = content.match(/^@(\S+):/)?.[1];
     return { role: "reviewer", label: author ? `@${author}` : "PR comment" };
@@ -176,7 +177,7 @@ export function SessionDetail({
       </div>
 
       {session.spec_phase && <SpecPanel session={session} onApprove={onApproveSpec} onAbandon={onAbandonSpec} />}
-      {session.github_tools === 1 && <GitHubChanges session={session} />}
+      {session.repo && <GitHubChanges session={session} />}
 
       <div id="detail-logs" ref={logsRef}>
         {logs.map((l) => {

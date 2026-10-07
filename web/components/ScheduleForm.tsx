@@ -189,7 +189,8 @@ export function ScheduleForm({
         <label className="form-check">
           <input type="checkbox" checked={value.github_tools} disabled={!value.repo || value.session_type !== "code"}
                  onChange={(e) => set("github_tools", e.target.checked)} />
-          Let the agent read and update this repo&apos;s issues (labels, bodies, comments, closing). Changes apply
+          Let the agent change and close any issue in this repo (labels, bodies, comments, closing), not just its
+          own. Every session can already read issues and change its own issue and pull request. Changes apply
           directly, within the per-turn limits in Settings, and can be undone from the session.
         </label>
       </div>

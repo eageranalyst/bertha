@@ -46,7 +46,10 @@ def status_line(phase: str, path: str, repo: str, branch: str) -> str:
         "revising": f"**Revising the spec** ({link}) from your comments.",
         "building": f"**Spec approved; building it** ({link}). Comments now wait until the build is done.",
         "build_failed": f"**The build didn't finish** ({link}). See the session in Bertha, or comment to retry.",
-        "built": f"**Built from the approved spec** ({link}). Ready for review.",
+        "checking": f"**Built from the approved spec; waiting on CI** ({link}). Marked ready for review once it passes.",
+        "ci_failing": f"**Built from the approved spec, but CI is failing** ({link}), and Bertha's automatic fixes "
+                      "didn't fix it. See the session.",
+        "built": f"**Built from the approved spec** ({link}). CI passed; ready for review.",
         "abandoned": "**Abandoned** before it was built.",
     }[phase]
 

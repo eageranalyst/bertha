@@ -1,7 +1,7 @@
 FROM node:22-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git curl ca-certificates gnupg python3 python3-pip python3-venv \
+        git curl ca-certificates gnupg procps python3 python3-pip python3-venv \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
         -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
@@ -14,6 +14,9 @@ RUN npm install -g opencode-ai
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+COPY git_safe.sh /opt/factory/git_safe.sh
+COPY push.sh /opt/factory/push.sh
+RUN chmod +x /opt/factory/push.sh
 COPY run_summary.py /opt/factory/run_summary.py
 COPY WORKING.md /opt/factory/WORKING.md
 

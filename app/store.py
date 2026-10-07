@@ -269,6 +269,20 @@ def _add_missing_session_columns(conn: sqlite3.Connection) -> None:
         # line comments and reviews have separate id sequences, so time is the
         # one cursor that covers all three.
         conn.execute("ALTER TABLE sessions ADD COLUMN comments_seen_at REAL")
+    if "ci_sha" not in cols:
+        # The PR head commit whose CI Bertha last acted on. Null: CI isn't
+        # watched (no push yet); "": watch the next head.
+        conn.execute("ALTER TABLE sessions ADD COLUMN ci_sha TEXT")
+    if "ci_fix_attempts" not in cols:
+        # Turns Bertha has started to fix failing CI since it last passed or you spoke.
+        conn.execute("ALTER TABLE sessions ADD COLUMN ci_fix_attempts INTEGER NOT NULL DEFAULT 0")
+    grant_cols = {row[1] for row in conn.execute("PRAGMA table_info(tool_grants)").fetchall()}
+    if grant_cols and "scope" not in grant_cols:
+        # What the key allows (app/github_tools.py): read, own or full.
+        conn.execute("ALTER TABLE tool_grants ADD COLUMN scope TEXT NOT NULL DEFAULT 'full'")
+    if grant_cols and "pushes" not in grant_cols:
+        conn.execute("ALTER TABLE tool_grants ADD COLUMN pushes INTEGER NOT NULL DEFAULT 0")
+        conn.execute("ALTER TABLE tool_grants ADD COLUMN max_pushes INTEGER NOT NULL DEFAULT 0")
     model_cols = {row[1] for row in conn.execute("PRAGMA table_info(models)").fetchall()}
     if model_cols and "context_length" not in model_cols:
         # Tokens the model can take, as the server reports it: the loaded
@@ -460,6 +474,8 @@ _ALLOWED_FIELDS = {
     "spec_phase",
     "spec_path",
     "comments_seen_at",
+    "ci_sha",
+    "ci_fix_attempts",
 }
 
 
@@ -879,12 +895,14 @@ def update_model(key: str, **fields: Any) -> None:
 
 # -- GitHub tool grants and calls -----------------------------------------
 
-def create_grant(session_id: int, repo: str, max_edits: int, max_closes: int) -> str:
+def create_grant(session_id: int, repo: str, max_edits: int, max_closes: int,
+                 scope: str = "full", max_pushes: int = 0) -> str:
     key = uuid.uuid4().hex + uuid.uuid4().hex
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO tool_grants (key, session_id, repo, max_edits, max_closes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (key, session_id, repo, max_edits, max_closes, time.time()),
+            "INSERT INTO tool_grants (key, session_id, repo, max_edits, max_closes, scope, max_pushes, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (key, session_id, repo, max_edits, max_closes, scope, max_pushes, time.time()),
         )
     return key
 
@@ -897,7 +915,7 @@ def get_grant(key: str) -> dict[str, Any] | None:
 
 def use_grant(key: str, kind: str) -> bool:
     """Counts one write against the grant's cap. False when the cap is reached."""
-    column, cap = ("closes", "max_closes") if kind == "close" else ("edits", "max_edits")
+    column, cap = {"close": ("closes", "max_closes"), "push": ("pushes", "max_pushes")}.get(kind, ("edits", "max_edits"))
     with _connect() as conn:
         cur = conn.execute(
             f"UPDATE tool_grants SET {column} = {column} + 1 WHERE key = ? AND revoked = 0 AND {column} < {cap}",
