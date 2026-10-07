@@ -21,6 +21,18 @@ export function AgentOutputLog({ content, time }: { content: string; time: strin
           if (seg.kind === "plain") {
             return <pre className="console-block" key={i}>{seg.text}</pre>;
           }
+          if (seg.event.type === "compaction") {
+            // OpenCode summarised the conversation to free up context. It's the
+            // agent's own notes, not a reply, so it sits collapsed.
+            return (
+              <details className="compaction-marker" key={i}>
+                <summary>Context compacted: the agent summarised its progress to continue</summary>
+                <div className="compaction-body">
+                  <Markdown>{seg.event.text}</Markdown>
+                </div>
+              </details>
+            );
+          }
           if (seg.event.type === "text") {
             // This is the agent *speaking*, as distinct from the tool
             // calls around it -- same bubble treatment as an ask

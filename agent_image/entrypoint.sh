@@ -93,7 +93,15 @@ cat > "$HOME/.config/opencode/opencode.jsonc" <<EOF
   },
   "skills": { "paths": ["${HOME}/skills", "/data/repo/.claude/skills"] },
 ${MCP_BLOCK}
-  "agent": { "build": { "steps": ${AGENT_STEPS:-25} } },
+  "agent": {
+    "build": { "steps": ${AGENT_STEPS:-25} },
+    "worker": {
+      "mode": "subagent",
+      "description": "Does one self-contained part of a larger task (one issue, one file, one module) in its own fresh context, then reports back briefly. Give it everything it needs in the prompt: the part to do, the rules to follow, and what to report.",
+      "steps": ${AGENT_STEPS:-25},
+      "prompt": "You are working on one part of a larger task, in a fresh context. Do that part completely, following the rules you were given and your working practices, using the tools you have. Don't start on other parts. When you're done, reply with a short report of two to five lines: what you did, what you changed (with names or numbers), and anything you couldn't do. The report is all the caller sees."
+    }
+  },
   "tool_output": { "max_lines": 200, "max_bytes": 8192 },
   "instructions": ["/opt/factory/WORKING.md", "${HOME}/factory/repo-context.md"],
   "compaction": { "auto": true, "prune": true },

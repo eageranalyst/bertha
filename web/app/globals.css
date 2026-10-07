@@ -505,6 +505,11 @@ a:hover { text-decoration: underline; }
 .runs-table th, .runs-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border-soft); }
 .runs-table th { color: var(--text-faint); font-weight: 500; font-size: 11.5px; }
 .runs-note { color: var(--text-dim); }
+.compaction-marker { margin: 6px 0; font-size: 12px; color: var(--text-faint); }
+.compaction-marker summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; }
+.compaction-marker summary::before { content: ""; flex: 0 0 18px; height: 1px; background: var(--border); }
+.compaction-marker summary::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.compaction-body { margin-top: 8px; padding: 8px 12px; border-left: 2px solid var(--border); color: var(--text-dim); }
 .schedule-link { display: block; margin-top: 4px; font-size: 12px; color: var(--text-dim); }
 .github-changes { margin: 0 0 12px; border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 8px 12px; background: var(--bg-raised); }
 .github-changes summary { cursor: pointer; font-size: 12.5px; color: var(--text-dim); }

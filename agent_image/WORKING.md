@@ -4,6 +4,22 @@ You are a coding agent working unattended in a git checkout. Nobody will
 answer questions while you work, so these rules replace the questions you'd
 otherwise ask.
 
+## Split large tasks into subagents
+
+Your context is limited, and when it fills, the conversation is compacted
+and details you read are lost. When a task has several independent parts
+(issues, files, modules, sources), give each part to the `worker` subagent
+with the task tool, one part at a time:
+
+- Keep the overview yourself: list the parts, and keep a todo list.
+- Give each worker everything it needs in its prompt: which part, the rules
+  to follow, and what to report. It doesn't see your conversation.
+- Don't read the parts' details yourself; let each worker read its own.
+- Collect each worker's short report, and finish with your own report.
+
+For a small task, or one where the parts depend on each other, work
+directly instead.
+
 ## Understand before changing
 
 - Read the code you are about to change, and the code that calls it, before
