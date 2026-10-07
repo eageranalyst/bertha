@@ -62,7 +62,8 @@ class DockerRunner:
 
     # -- isolation ------------------------------------------------------
 
-    def ensure_egress(self, app_dir: Path, allow: list[str], model_host: str, model_port: int) -> None:
+    def ensure_egress(self, app_dir: Path, allow: list[str], model_host: str, model_port: int,
+                      tools_port: int | None = None) -> None:
         """Creates the internal agent network and (re)starts the egress proxy
         that is its only way out. See app/egress_proxy.py. Called at startup,
         so a changed allowlist or model address takes effect on restart.
@@ -75,8 +76,12 @@ class DockerRunner:
         # Replacing the proxy briefly leaves Docker's DNS pointing "egress" at
         # the old container, so keep a running proxy whose config and code are
         # unchanged, and only replace it when something did change.
+        forwards = f"{model_port}={model_host}:{model_port}"
+        if tools_port:
+            # The GitHub tool server runs on the host, next to the model server.
+            forwards += f",{tools_port}={model_host}:{tools_port}"
         fingerprint = hashlib.sha256(json.dumps({
-            "allow": allow, "upstream": f"{model_host}:{model_port}",
+            "allow": allow, "forwards": forwards,
             "code": (app_dir / "egress_proxy.py").read_text(),
         }, sort_keys=True).encode()).hexdigest()[:16]
         try:
@@ -92,8 +97,7 @@ class DockerRunner:
             working_dir="/src",
             environment={
                 "EGRESS_ALLOW": ",".join(allow),
-                "MODEL_UPSTREAM": f"{model_host}:{model_port}",
-                "MODEL_LISTEN_PORT": str(model_port),
+                "FORWARDS": forwards,
                 "PYTHONDONTWRITEBYTECODE": "1",
             },
             volumes={str(app_dir): {"bind": "/src/app", "mode": "ro"}},

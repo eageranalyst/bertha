@@ -170,6 +170,44 @@ created, last built and last changed) and `wiki_pages` (one row per
 page). A build that's interrupted by an API restart is marked failed
 on the next start.
 
+## Schedules
+
+The **Schedules** tab runs a prompt on a cron schedule. Each run starts a
+normal session (it shows in the Sessions list, and in the schedule's run
+history), with the schedule's repo, optional model, and session type.
+
+- The cron is entered and shown in your local time zone; it's stored with
+  that zone, so "02:00 nightly" stays at 02:00 across daylight-saving
+  changes, and every timestamp is stored in UTC (`app/cron.py`).
+- Each schedule has a **timeout**: a run past it is stopped. A run that
+  comes due while the previous run is still going is recorded as failed and
+  doesn't start, so runs never overlap.
+- A run missed while Bertha was off happens once when it starts again, not
+  once per missed slot.
+- **Run now** starts a run immediately, under the same rules.
+
+The **Backlog groom** template grooms a repo's open issues: it follows the
+repo's own grooming rules (a `groom-backlog` skill in `.claude/skills/`, and
+the label vocabulary in its README, if present), fleshes out thin issues,
+applies the standard labels, closes duplicates and stale issues, and asks
+questions in comments.
+
+### GitHub tools
+
+Agents have no GitHub token. A session (or schedule) with **GitHub tools**
+on gets Bertha's GitHub tool server (`app/github_tools.py`), an MCP server
+that holds the token and gives the agent tools instead: list, read, edit
+(title, body, labels), comment on and close issues, and read-only access to
+the repo's API. Each turn gets its own key, scoped to the session's repo and
+revoked when the turn ends.
+
+Changes apply directly, so there are guardrails: only issues in the
+session's repo, no deletes, only labels the repo already has, and per-turn
+limits on edits and closures (Settings). Every change is recorded with the
+values before it, and the session's **GitHub changes** panel can undo a
+run's changes. The bot's token needs **Issues: read and write** on repos
+where this is used.
+
 ## Agent performance
 
 What the agent gets, besides the task:

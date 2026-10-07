@@ -1,5 +1,9 @@
 import type {
   AgentSetting,
+  GitHubCall,
+  Schedule,
+  ScheduleInput,
+  ScheduleRun,
   LogEntry,
   Model,
   RepoMetadata,
@@ -95,6 +99,26 @@ export const api = {
       body: JSON.stringify({ force }),
     }),
 
+  listSchedules: () => request<Schedule[]>("/api/schedules"),
+  getSchedule: (id: number) => request<Schedule>(`/api/schedules/${id}`),
+  createSchedule: (body: ScheduleInput) =>
+    request<Schedule>("/api/schedules", { method: "POST", body: JSON.stringify(body) }),
+  updateSchedule: (id: number, body: ScheduleInput) =>
+    request<Schedule>(`/api/schedules/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteSchedule: (id: number) => request<{ ok: boolean }>(`/api/schedules/${id}`, { method: "DELETE" }),
+  runScheduleNow: (id: number) =>
+    request<{ id: number; status: string; session_id?: number }>(`/api/schedules/${id}/run`, { method: "POST" }),
+  listScheduleRuns: (id: number) => request<ScheduleRun[]>(`/api/schedules/${id}/runs`),
+  previewCron: (cron: string, timezone: string) =>
+    request<{ next: number[] }>("/api/schedules/preview", {
+      method: "POST",
+      body: JSON.stringify({ cron, timezone }),
+    }),
+  listGitHubCalls: (sessionId: number) => request<GitHubCall[]>(`/api/sessions/${sessionId}/github`),
+  undoGitHubCalls: (sessionId: number) =>
+    request<{ id: number; undone: boolean; error?: string }[]>(`/api/sessions/${sessionId}/github/undo`, {
+      method: "POST",
+    }),
   getSecurity: () => request<SecurityStatus>("/api/security"),
   listSettings: () => request<AgentSetting[]>("/api/settings"),
   updateSettings: (values: Record<string, number>) =>

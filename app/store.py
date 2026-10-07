@@ -137,6 +137,70 @@ CREATE TABLE IF NOT EXISTS code_chunks (
 
 CREATE INDEX IF NOT EXISTS idx_code_chunks_repo ON code_chunks(repo);
 
+-- GitHub tools for agents (app/github_tools.py). A grant is one turn's key,
+-- scoped to the session's repo; it's revoked when the turn ends.
+CREATE TABLE IF NOT EXISTS tool_grants (
+    key TEXT PRIMARY KEY,
+    session_id INTEGER NOT NULL,
+    repo TEXT NOT NULL,
+    max_edits INTEGER NOT NULL,
+    max_closes INTEGER NOT NULL,
+    edits INTEGER NOT NULL DEFAULT 0,
+    closes INTEGER NOT NULL DEFAULT 0,
+    revoked INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL
+);
+
+-- Every GitHub tool call, with the issue's values before and after a change,
+-- so a run's changes can be reviewed and undone.
+CREATE TABLE IF NOT EXISTS tool_calls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    repo TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    issue_number INTEGER,
+    args_json TEXT NOT NULL,
+    before_json TEXT,
+    after_json TEXT,
+    ok INTEGER NOT NULL,
+    error TEXT,
+    undone_at REAL,
+    created_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tool_calls_session ON tool_calls(session_id);
+
+-- Prompts that run on a cron schedule, each run as a normal session.
+CREATE TABLE IF NOT EXISTS schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    repo TEXT,
+    prompt TEXT NOT NULL,
+    cron TEXT NOT NULL,
+    timezone TEXT NOT NULL,
+    timeout_minutes INTEGER NOT NULL,
+    model TEXT,
+    session_type TEXT NOT NULL DEFAULT 'code',
+    github_tools INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    next_run_at REAL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS schedule_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    schedule_id INTEGER NOT NULL,
+    session_id INTEGER,
+    status TEXT NOT NULL,
+    reason TEXT,
+    scheduled_for REAL NOT NULL,
+    started_at REAL NOT NULL,
+    finished_at REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule ON schedule_runs(schedule_id);
+
 -- Settings the user can change in the UI, stored as text. Defaults and limits
 -- live in app/agent_settings.py.
 CREATE TABLE IF NOT EXISTS settings (
@@ -179,6 +243,14 @@ def _add_missing_session_columns(conn: sqlite3.Connection) -> None:
     if "model_pinned" not in cols:
         # 1 when the user chose the model; routing leaves a pinned session alone.
         conn.execute("ALTER TABLE sessions ADD COLUMN model_pinned INTEGER NOT NULL DEFAULT 0")
+    if "github_tools" not in cols:
+        # 1 when the agent gets the GitHub tools (app/github_tools.py) for its repo.
+        conn.execute("ALTER TABLE sessions ADD COLUMN github_tools INTEGER NOT NULL DEFAULT 0")
+    if "schedule_id" not in cols:
+        conn.execute("ALTER TABLE sessions ADD COLUMN schedule_id INTEGER")
+    if "deadline_at" not in cols:
+        # A scheduled run past this time (UTC epoch) is stopped as timed out.
+        conn.execute("ALTER TABLE sessions ADD COLUMN deadline_at REAL")
     if "dry_run" not in cols:
         # 1 for eval runs: the turn commits in its workspace but never pushes or opens a PR.
         conn.execute("ALTER TABLE sessions ADD COLUMN dry_run INTEGER NOT NULL DEFAULT 0")
@@ -284,6 +356,9 @@ def create_session(
     model: str | None = None,
     model_pinned: bool = False,
     dry_run: bool = False,
+    github_tools: bool = False,
+    schedule_id: int | None = None,
+    deadline_at: float | None = None,
 ) -> int:
     now = time.time()
     # Nothing to run yet without an opening message -- sit idle (e.g. a
@@ -302,12 +377,14 @@ def create_session(
             INSERT INTO sessions
                 (ref, session_type, repo, issue_number, title, branch_name,
                  pending_message, status, workspace, model, model_pinned, dry_run,
+                 github_tools, schedule_id, deadline_at,
                  last_activity_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (ref, session_type, repo, issue_number, title, branch_name,
              pending_message, status, f"factory-ws-{ref}", model, 1 if model_pinned else 0,
-             1 if dry_run else 0, now, now, now),
+             1 if dry_run else 0, 1 if github_tools else 0, schedule_id, deadline_at,
+             now, now, now),
         )
         return cur.lastrowid
 
@@ -361,6 +438,9 @@ _ALLOWED_FIELDS = {
     "model",
     "model_pinned",
     "last_turn_failed",
+    "github_tools",
+    "schedule_id",
+    "deadline_at",
 }
 
 
@@ -771,6 +851,182 @@ def update_model(key: str, **fields: Any) -> None:
             f"UPDATE models SET {assignments} WHERE key = ?",
             [*fields.values(), time.time(), key],
         )
+
+
+# -- GitHub tool grants and calls -----------------------------------------
+
+def create_grant(session_id: int, repo: str, max_edits: int, max_closes: int) -> str:
+    key = uuid.uuid4().hex + uuid.uuid4().hex
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO tool_grants (key, session_id, repo, max_edits, max_closes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (key, session_id, repo, max_edits, max_closes, time.time()),
+        )
+    return key
+
+
+def get_grant(key: str) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM tool_grants WHERE key = ? AND revoked = 0", (key,)).fetchone()
+        return _row_to_dict(row) if row else None
+
+
+def use_grant(key: str, kind: str) -> bool:
+    """Counts one write against the grant's cap. False when the cap is reached."""
+    column, cap = ("closes", "max_closes") if kind == "close" else ("edits", "max_edits")
+    with _connect() as conn:
+        cur = conn.execute(
+            f"UPDATE tool_grants SET {column} = {column} + 1 WHERE key = ? AND revoked = 0 AND {column} < {cap}",
+            (key,),
+        )
+        return cur.rowcount == 1
+
+
+def revoke_grants(session_id: int) -> None:
+    with _connect() as conn:
+        conn.execute("UPDATE tool_grants SET revoked = 1 WHERE session_id = ?", (session_id,))
+
+
+def record_tool_call(session_id: int, repo: str, tool: str, issue_number: int | None, args: dict,
+                     before: dict | None, after: dict | None, ok: bool, error: str | None) -> int:
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO tool_calls (session_id, repo, tool, issue_number, args_json, before_json, after_json,
+                                    ok, error, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (session_id, repo, tool, issue_number, json.dumps(args),
+             None if before is None else json.dumps(before), None if after is None else json.dumps(after),
+             1 if ok else 0, error, time.time()),
+        )
+        return cur.lastrowid
+
+
+def list_tool_calls(session_id: int) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM tool_calls WHERE session_id = ? ORDER BY id", (session_id,)).fetchall()
+    calls = []
+    for r in rows:
+        call = _row_to_dict(r)
+        for field in ("args", "before", "after"):
+            raw = call.pop(f"{field}_json")
+            call[field] = json.loads(raw) if raw else None
+        call["ok"] = bool(call["ok"])
+        calls.append(call)
+    return calls
+
+
+def mark_tool_call_undone(call_id: int) -> None:
+    with _connect() as conn:
+        conn.execute("UPDATE tool_calls SET undone_at = ? WHERE id = ?", (time.time(), call_id))
+
+
+# -- schedules -------------------------------------------------------------
+
+_SCHEDULE_FIELDS = {"name", "repo", "prompt", "cron", "timezone", "timeout_minutes", "model",
+                    "session_type", "github_tools", "enabled", "next_run_at"}
+
+
+def _schedule_row(row: sqlite3.Row) -> dict[str, Any]:
+    schedule = _row_to_dict(row)
+    schedule["github_tools"] = bool(schedule["github_tools"])
+    schedule["enabled"] = bool(schedule["enabled"])
+    return schedule
+
+
+def create_schedule(**fields: Any) -> int:
+    now = time.time()
+    unknown = set(fields) - _SCHEDULE_FIELDS
+    if unknown:
+        raise ValueError(f"unknown schedule fields: {unknown}")
+    values = {**fields, "created_at": now, "updated_at": now}
+    with _connect() as conn:
+        cur = conn.execute(
+            f"INSERT INTO schedules ({', '.join(values)}) VALUES ({', '.join('?' for _ in values)})",
+            list(values.values()),
+        )
+        return cur.lastrowid
+
+
+def update_schedule(schedule_id: int, **fields: Any) -> None:
+    unknown = set(fields) - _SCHEDULE_FIELDS
+    if unknown:
+        raise ValueError(f"unknown schedule fields: {unknown}")
+    fields["updated_at"] = time.time()
+    with _connect() as conn:
+        conn.execute(
+            f"UPDATE schedules SET {', '.join(f'{k} = ?' for k in fields)} WHERE id = ?",
+            [*fields.values(), schedule_id],
+        )
+
+
+def get_schedule(schedule_id: int) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM schedules WHERE id = ?", (schedule_id,)).fetchone()
+        return _schedule_row(row) if row else None
+
+
+def list_schedules() -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM schedules ORDER BY name").fetchall()
+        return [_schedule_row(r) for r in rows]
+
+
+def delete_schedule(schedule_id: int) -> None:
+    with _connect() as conn:
+        conn.execute("DELETE FROM schedule_runs WHERE schedule_id = ?", (schedule_id,))
+        conn.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
+
+
+def due_schedules(now: float) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM schedules WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?", (now,)
+        ).fetchall()
+        return [_schedule_row(r) for r in rows]
+
+
+def create_schedule_run(schedule_id: int, status: str, scheduled_for: float,
+                        session_id: int | None = None, reason: str | None = None) -> int:
+    now = time.time()
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO schedule_runs (schedule_id, session_id, status, reason, scheduled_for, started_at, finished_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (schedule_id, session_id, status, reason, scheduled_for, now, None if status == "running" else now),
+        )
+        return cur.lastrowid
+
+
+def finish_schedule_run(session_id: int, status: str, reason: str | None = None) -> None:
+    """Closes the open run for a session, if it has one."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE schedule_runs SET status = ?, reason = COALESCE(?, reason), finished_at = ? "
+            "WHERE session_id = ? AND status = 'running'",
+            (status, reason, time.time(), session_id),
+        )
+
+
+def list_schedule_runs(schedule_id: int, limit: int = 50) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT r.*, s.ref AS session_ref, s.status AS session_status
+            FROM schedule_runs r LEFT JOIN sessions s ON s.id = r.session_id
+            WHERE r.schedule_id = ? ORDER BY r.id DESC LIMIT ?
+            """,
+            (schedule_id, limit),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+
+def last_schedule_run(schedule_id: int) -> dict[str, Any] | None:
+    runs = list_schedule_runs(schedule_id, limit=1)
+    return runs[0] if runs else None
 
 
 # -- code index -----------------------------------------------------------

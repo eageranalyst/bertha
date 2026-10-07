@@ -43,7 +43,9 @@ from typing import Any
 
 import httpx
 
-from . import agent_settings, code_index
+from datetime import datetime, timezone
+
+from . import agent_settings, code_index, cron
 from . import models as model_registry
 from . import store
 from .routing import route as route_turn
@@ -155,6 +157,8 @@ class Scheduler:
         would feel broken, waiting up to a full poll_interval_seconds
         before anything visibly happens.
         """
+        self._run_due_schedules()
+        self._enforce_deadlines()
         self._promote_pending_messages()
         self._start_queued()
         self._check_running()
@@ -184,6 +188,87 @@ class Scheduler:
         )
         return {**session, "model": chosen["key"]}
 
+    # -- schedules -------------------------------------------------------
+
+    def _run_due_schedules(self) -> None:
+        now = time.time()
+        for schedule in store.due_schedules(now):
+            scheduled_for = schedule["next_run_at"]
+            # The next time counts from now, not from the missed slot, so a run
+            # missed while this machine was off happens once, not once per slot.
+            try:
+                upcoming = cron.next_run(schedule["cron"], schedule["timezone"],
+                                         datetime.fromtimestamp(max(now, scheduled_for), tz=timezone.utc))
+                store.update_schedule(schedule["id"], next_run_at=upcoming.timestamp())
+            except cron.CronError as exc:
+                store.update_schedule(schedule["id"], enabled=0, next_run_at=None)
+                store.create_schedule_run(schedule["id"], "failed", scheduled_for,
+                                          reason=f"schedule disabled: {exc}")
+                continue
+            self.start_schedule_run(schedule, scheduled_for)
+
+    def start_schedule_run(self, schedule: dict[str, Any], scheduled_for: float) -> dict[str, Any]:
+        """Starts one run of a schedule as a normal session, unless the previous
+        run is still going, in which case this run is recorded as failed.
+        Returns the run."""
+        last = store.last_schedule_run(schedule["id"])
+        if last and last["status"] == "running":
+            previous = store.get_session(last["session_id"]) if last["session_id"] else None
+            if previous and previous["status"] in ("running", "queued"):
+                run_id = store.create_schedule_run(
+                    schedule["id"], "failed", scheduled_for,
+                    reason=f"the previous run (session {previous['ref']}) was still running",
+                )
+                return {"id": run_id, "status": "failed"}
+            # Its session ended without closing the run (e.g. a restart); close it now.
+            store.finish_schedule_run(last["session_id"], "failed", "ended without reporting")
+
+        session_id = store.create_session(
+            session_type=schedule["session_type"],
+            repo=schedule["repo"],
+            title=schedule["name"],
+            pending_message=schedule["prompt"],
+            model=schedule["model"],
+            model_pinned=bool(schedule["model"]),
+            github_tools=schedule["github_tools"],
+            schedule_id=schedule["id"],
+            deadline_at=time.time() + schedule["timeout_minutes"] * 60,
+        )
+        store.append_log(session_id, "system", f"Started by the schedule \"{schedule['name']}\"")
+        store.append_log(session_id, "user_message", schedule["prompt"])
+        run_id = store.create_schedule_run(schedule["id"], "running", scheduled_for, session_id=session_id)
+        logger.info("schedule %s started session %s", schedule["id"], session_id)
+        return {"id": run_id, "status": "running", "session_id": session_id}
+
+    def _enforce_deadlines(self) -> None:
+        """Stops scheduled runs that have gone past their timeout."""
+        now = time.time()
+        for status in ("running", "queued"):
+            for session in store.list_sessions(status=status):
+                deadline = session.get("deadline_at")
+                if not deadline or deadline > now:
+                    continue
+                store.finish_schedule_run(session["id"], "timed_out", "went past the schedule's timeout")
+                store.append_log(session["id"], "system", "Stopped: the scheduled run went past its timeout")
+                if status == "running":
+                    self.stop_turn(session)
+                else:
+                    store.update_session(session["id"], status="stopped", pending_message=None)
+                store.update_session(session["id"], deadline_at=None, attention="failed")
+
+    def _github_tools_env(self, session: dict[str, Any]) -> dict[str, str]:
+        """A fresh key for this turn's GitHub tools, when the session has them.
+        The previous turn's key is revoked first; this one is revoked when the
+        turn ends (see _settle and stop_turn)."""
+        if not session.get("github_tools") or not session.get("repo"):
+            return {}
+        store.revoke_grants(session["id"])
+        limits = agent_settings.current()
+        key = store.create_grant(session["id"], session["repo"],
+                                 limits["github_max_edits"], limits["github_max_closes"])
+        host = "egress" if self.settings.egress_isolation else "host.docker.internal"
+        return {"GITHUB_TOOLS_URL": f"http://{host}:{self.settings.tools_port}/mcp", "GITHUB_TOOLS_KEY": key}
+
     def _settle(self, session_id: int, status: str, attention: str | None, **fields: Any) -> None:
         """Ends a turn. `attention` says what the session is waiting on
         ("replied", "review" or "failed"), or None. Nothing is flagged when
@@ -194,6 +279,11 @@ class Scheduler:
         current = store.get_session(session_id)
         if current and current["pending_message"]:
             attention = None
+        store.revoke_grants(session_id)
+        if current and current.get("schedule_id"):
+            store.finish_schedule_run(session_id, "failed" if status == "failed" else "succeeded")
+            # The run is over; later turns the user starts here have no deadline.
+            fields["deadline_at"] = None
         store.update_session(
             session_id,
             status=status,
@@ -219,6 +309,9 @@ class Scheduler:
         if session["container_id"]:
             self.runner.remove(session["container_id"])
         self._streamed.pop(session["id"], None)
+        store.revoke_grants(session["id"])
+        if session.get("schedule_id"):
+            store.finish_schedule_run(session["id"], "stopped")
         store.update_session(session["id"], status="stopped", container_id=None, pending_message=None)
         store.append_log(session["id"], "system", "Stopped from UI")
         return True
@@ -389,6 +482,7 @@ class Scheduler:
             "LOCAL_MODEL_KEY": self.settings.local_model_key,
             "LOCAL_MODEL_ID": self.settings.local_model_id,
             "NO_PUSH": "1" if session.get("dry_run") else "",
+            **self._github_tools_env(session),
             "BOT_NAME": self.settings.bot_name,
             "BOT_EMAIL": self.settings.bot_email,
             # Skills enabled for this repo, written into /data/skills by the entrypoint.

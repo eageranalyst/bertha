@@ -481,6 +481,37 @@ a:hover { text-decoration: underline; }
 .mermaid-error { margin: 14px 0; }
 .mermaid-error-message { color: var(--danger); font-size: 12px; margin-bottom: 6px; }
 
+/* -- schedules ---------------------------------------------------------- */
+
+.schedule-form { display: flex; flex-direction: column; gap: 14px; max-width: 820px; }
+.form-row { display: grid; grid-template-columns: 110px 1fr; gap: 12px; align-items: center; }
+.form-row-top { align-items: start; }
+.form-row > label, .form-label { font-size: 12.5px; color: var(--text-dim); font-weight: 500; }
+.form-row-top > label { padding-top: 8px; }
+.form-stack { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.form-inline { display: flex; gap: 10px; align-items: center; }
+.form-inline input { width: 90px; }
+.form-check { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; color: var(--text-dim); line-height: 1.5; }
+.form-check input { margin-top: 3px; }
+.cron-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.cron-presets .preset-active { border-color: var(--accent); color: var(--text); }
+.cron-input { font-family: var(--font-mono, "JetBrains Mono"), ui-monospace, Menlo, monospace; width: 220px; }
+.cron-preview { font-size: 12px; color: var(--text-dim); }
+.run-running { background: #16301f; color: var(--ok); }
+.run-succeeded { background: #16283a; color: #6cb2e8; }
+.run-failed, .run-timed_out { background: var(--danger-soft); color: var(--danger); }
+.run-stopped { background: #2a2420; color: #c98f5c; }
+.runs-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.runs-table th, .runs-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border-soft); }
+.runs-table th { color: var(--text-faint); font-weight: 500; font-size: 11.5px; }
+.runs-note { color: var(--text-dim); }
+.github-changes { margin: 0 0 12px; border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 8px 12px; background: var(--bg-raised); }
+.github-changes summary { cursor: pointer; font-size: 12.5px; color: var(--text-dim); }
+.github-changes ul { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 1.7; }
+.github-changes li.undone { opacity: 0.55; text-decoration: line-through; }
+.github-changes li.refused { color: var(--danger); }
+.github-changes-actions { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+
 /* -- settings ---------------------------------------------------------- */
 
 .settings-page { display: flex; flex-direction: column; gap: 12px; max-width: 760px; }

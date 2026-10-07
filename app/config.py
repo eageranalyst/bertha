@@ -48,6 +48,9 @@ class Settings:
     # the egress proxy (app/egress_proxy.py). Off restores open networking.
     egress_isolation: bool
     egress_allow: list[str]
+    # Port of the GitHub tool server (app/github_tools.py), on the host; agent
+    # containers reach it through the egress proxy.
+    tools_port: int
     host: str
     port: int
     bot_name: str
@@ -103,6 +106,7 @@ def get_settings() -> Settings:
         routing_enabled=os.environ.get("FACTORY_ROUTING", "1").lower() not in ("0", "false", "off"),
         egress_isolation=os.environ.get("FACTORY_EGRESS", "isolated").lower() != "open",
         egress_allow=DEFAULT_EGRESS_ALLOW + _split_repos(os.environ.get("FACTORY_EGRESS_ALLOW", "")),
+        tools_port=int(os.environ.get("FACTORY_TOOLS_PORT", "8790")),
         host=os.environ.get("FACTORY_HOST", "127.0.0.1"),
         port=int(os.environ.get("FACTORY_PORT", "8787")),
         bot_name=os.environ.get("FACTORY_BOT_NAME", "factory-agent"),

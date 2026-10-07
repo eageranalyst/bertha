@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { LogEntry, Model, Session } from "@/lib/types";
 import { Markdown } from "./Markdown";
 import { AgentOutputLog } from "./AgentOutputLog";
+import { GitHubChanges } from "./GitHubChanges";
 import {
   MessageRow,
   MessageBubble,
@@ -166,6 +167,8 @@ export function SessionDetail({
           </button>
         )}
       </div>
+
+      {session.github_tools === 1 && <GitHubChanges session={session} />}
 
       <div id="detail-logs" ref={logsRef}>
         {logs.map((l) => {

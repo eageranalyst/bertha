@@ -35,8 +35,69 @@ export interface Session {
   model_pinned: number;
   /** 1 when the last turn failed, so the next one is routed up a tier. */
   last_turn_failed: number;
+  /** 1 when the agent has Bertha's GitHub tools for the session's repo. */
+  github_tools: number;
+  /** The schedule that started this session, if any. */
+  schedule_id: number | null;
   created_at: number;
   updated_at: number;
+}
+
+export type ScheduleRunStatus = "running" | "succeeded" | "failed" | "stopped" | "timed_out";
+
+export interface ScheduleRun {
+  id: number;
+  schedule_id: number;
+  session_id: number | null;
+  session_ref: string | null;
+  session_status: SessionStatus | null;
+  status: ScheduleRunStatus;
+  reason: string | null;
+  /** UTC epoch seconds. */
+  scheduled_for: number;
+  started_at: number;
+  finished_at: number | null;
+}
+
+/** A prompt that runs on a cron schedule, each run as a normal session. */
+export interface Schedule {
+  id: number;
+  name: string;
+  repo: string | null;
+  prompt: string;
+  cron: string;
+  /** IANA zone the cron is read in, e.g. Europe/London. */
+  timezone: string;
+  timeout_minutes: number;
+  model: string | null;
+  session_type: SessionType;
+  github_tools: boolean;
+  enabled: boolean;
+  /** UTC epoch seconds, or null when disabled. */
+  next_run_at: number | null;
+  created_at: number;
+  updated_at: number;
+  last_run: ScheduleRun | null;
+}
+
+export type ScheduleInput = Pick<
+  Schedule,
+  "name" | "repo" | "prompt" | "cron" | "timezone" | "timeout_minutes" | "model" | "session_type" | "github_tools" | "enabled"
+>;
+
+/** One GitHub tool call made by a session's agent. */
+export interface GitHubCall {
+  id: number;
+  tool: string;
+  repo: string;
+  issue_number: number | null;
+  args: Record<string, unknown>;
+  before: { title?: string; body?: string; labels?: string[]; state?: string } | null;
+  after: { title?: string; body?: string; labels?: string[]; state?: string; comment_id?: number } | null;
+  ok: boolean;
+  error: string | null;
+  undone_at: number | null;
+  created_at: number;
 }
 
 /** How well agent containers are contained, from /api/security. */

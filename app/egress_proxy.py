@@ -6,16 +6,16 @@ normal one, and offers two exits:
 
 - an HTTP proxy (CONNECT for HTTPS, plain forwarding for HTTP) that only
   reaches hosts on the allowlist: GitHub and package registries;
-- a straight TCP forward to the model server on the host.
+- straight TCP forwards to two services on the host: the model server, and
+  Bertha's GitHub tool server (app/github_tools.py).
 
 Everything else, including Bertha's own API and any other service on the
 host, is unreachable. Refused hosts are logged as EGRESS_DENIED lines.
 
 Runs as `python3 -m app.egress_proxy` with config in env vars:
-  EGRESS_ALLOW        comma-separated hosts; ".example.com" also allows subdomains
-  MODEL_UPSTREAM      host:port of the model server, e.g. host.docker.internal:1234
-  MODEL_LISTEN_PORT   port to forward it on
-  PROXY_PORT          HTTP proxy port (default 3128)
+  EGRESS_ALLOW   comma-separated hosts; ".example.com" also allows subdomains
+  FORWARDS       comma-separated listen=host:port, e.g. 1234=host.docker.internal:1234
+  PROXY_PORT     HTTP proxy port (default 3128)
 """
 
 import asyncio
@@ -133,20 +133,31 @@ def handle_forward(upstream_host: str, upstream_port: int):
     return handle
 
 
+def parse_forwards(raw: str) -> list[tuple[int, str, int]]:
+    """"1234=host.docker.internal:1234,8790=host.docker.internal:8790" ->
+    [(listen port, upstream host, upstream port), ...]"""
+    forwards = []
+    for item in raw.split(","):
+        if not item.strip():
+            continue
+        listen, _, upstream = item.partition("=")
+        host, _, port = upstream.rpartition(":")
+        forwards.append((int(listen), host, int(port)))
+    return forwards
+
+
 async def main() -> None:
     allow = parse_allow(os.environ.get("EGRESS_ALLOW", ""))
-    upstream_host, _, upstream_port = os.environ["MODEL_UPSTREAM"].rpartition(":")
-    listen_port = int(os.environ.get("MODEL_LISTEN_PORT", upstream_port))
     proxy_port = int(os.environ.get("PROXY_PORT", "3128"))
+    forwards = parse_forwards(os.environ.get("FORWARDS", ""))
 
-    proxy = await asyncio.start_server(handle_proxy(allow), "0.0.0.0", proxy_port)
-    forward = await asyncio.start_server(
-        handle_forward(upstream_host, int(upstream_port)), "0.0.0.0", listen_port
-    )
-    print(f"egress proxy on :{proxy_port}, model forward :{listen_port} -> {upstream_host}:{upstream_port}, "
-          f"allowing {', '.join(allow) or 'nothing'}", flush=True)
-    async with proxy, forward:
-        await asyncio.gather(proxy.serve_forever(), forward.serve_forever())
+    servers = [await asyncio.start_server(handle_proxy(allow), "0.0.0.0", proxy_port)]
+    for listen, host, port in forwards:
+        servers.append(await asyncio.start_server(handle_forward(host, port), "0.0.0.0", listen))
+    described = ", ".join(f":{listen} -> {host}:{port}" for listen, host, port in forwards) or "none"
+    print(f"egress proxy on :{proxy_port}, forwards {described}, allowing {', '.join(allow) or 'nothing'}",
+          flush=True)
+    await asyncio.gather(*(server.serve_forever() for server in servers))
 
 
 if __name__ == "__main__":

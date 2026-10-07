@@ -20,9 +20,15 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+import asyncio
+import time
+from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from . import agent_settings
+import uvicorn
+
+from . import agent_settings, cron, github_tools
 from . import models as model_registry
 from . import store
 from .config import get_settings
@@ -87,7 +93,8 @@ async def lifespan(app: FastAPI):
     runner.ensure_image(WIKI_IMAGE_DIR, tag=settings.wiki_image_tag)
     if settings.egress_isolation:
         model_host, model_port = settings.model_host_port
-        runner.ensure_egress(BASE_DIR / "app", settings.egress_allow, model_host, model_port)
+        runner.ensure_egress(BASE_DIR / "app", settings.egress_allow, model_host, model_port,
+                             tools_port=settings.tools_port)
     else:
         logger.warning("FACTORY_EGRESS=open: agent containers can reach the host and the internet")
     gh = GitHubClient(settings.github_token, settings.github_bot_username)
@@ -103,6 +110,7 @@ async def lifespan(app: FastAPI):
     wiki.resume()
     _state["wiki"] = wiki
     _state["threads"] = [fast_thread, slow_thread]
+    tools_server = _start_tools_server(settings.tools_port)
     logger.info(
         "Agent Factory started, watching %s every %ss (session progress every %ss)",
         settings.repos, settings.poll_interval_seconds, settings.fast_poll_interval_seconds,
@@ -110,6 +118,15 @@ async def lifespan(app: FastAPI):
     yield
     fast_thread.stop()
     slow_thread.stop()
+    tools_server.should_exit = True
+
+
+def _start_tools_server(port: int) -> uvicorn.Server:
+    """The GitHub tool server (app/github_tools.py) on its own port, so agent
+    containers can be given a route to it without a route to this API."""
+    server = uvicorn.Server(uvicorn.Config(github_tools.app, host="127.0.0.1", port=port, log_level="warning"))
+    threading.Thread(target=lambda: asyncio.run(server.serve()), name="factory-tools", daemon=True).start()
+    return server
 
 
 app = FastAPI(title="Agent Factory", lifespan=lifespan)
@@ -141,6 +158,8 @@ class NewSessionIn(BaseModel):
     model: str | None = None
     # Eval runs: commit in the workspace, but never push or open a PR.
     dry_run: bool = False
+    # Give the agent Bertha's GitHub tools for the session's repo.
+    github_tools: bool = False
 
 
 class RepoIn(BaseModel):
@@ -307,6 +326,7 @@ def api_new_session(body: NewSessionIn):
         # A model the user picked stays on this session; the default is routed per turn.
         model_pinned=bool(body.model),
         dry_run=body.dry_run,
+        github_tools=body.github_tools and bool(body.repo),
     )
     store.append_log(session_id, "system", f"Started a new {body.session_type} session")
     if body.prompt:
@@ -470,6 +490,137 @@ class ModelIn(BaseModel):
     tier: str | None = None
     description: str | None = None
     enabled: bool | None = None
+
+
+# -- schedules -------------------------------------------------------------
+
+class ScheduleIn(BaseModel):
+    name: str
+    prompt: str
+    cron: str
+    timezone: str
+    repo: str | None = None
+    timeout_minutes: int = 60
+    model: str | None = None
+    session_type: str = "code"
+    github_tools: bool = False
+    enabled: bool = True
+
+
+class CronPreviewIn(BaseModel):
+    cron: str
+    timezone: str
+
+
+def _validate_schedule(body: ScheduleIn) -> float | None:
+    """Checks a schedule and returns its next run time (UTC epoch)."""
+    if not body.name.strip() or not body.prompt.strip():
+        raise HTTPException(400, "a schedule needs a name and a prompt")
+    if body.session_type not in ("ask", "code"):
+        raise HTTPException(400, "session_type must be 'ask' or 'code'")
+    if not 1 <= body.timeout_minutes <= 24 * 60:
+        raise HTTPException(400, "the timeout must be between 1 minute and 24 hours")
+    if body.repo and body.repo not in {r["full_name"] for r in store.list_repos()}:
+        raise HTTPException(400, f"{body.repo} isn't a registered repo")
+    if body.github_tools and not body.repo:
+        raise HTTPException(400, "GitHub tools need a repo")
+    if body.model:
+        chosen = store.get_model(body.model)
+        if not chosen or not chosen["enabled"]:
+            raise HTTPException(400, f"model {body.model} is not an enabled model")
+    try:
+        ZoneInfo(body.timezone)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise HTTPException(400, f"unknown time zone {body.timezone}")
+    try:
+        return cron.next_run(body.cron, body.timezone, datetime.now(timezone.utc)).timestamp()
+    except cron.CronError as exc:
+        raise HTTPException(400, f"cron: {exc}")
+
+
+def _schedule_view(schedule: dict) -> dict:
+    return {**schedule, "last_run": store.last_schedule_run(schedule["id"])}
+
+
+def _schedule_or_404(schedule_id: int) -> dict:
+    schedule = store.get_schedule(schedule_id)
+    if not schedule:
+        raise HTTPException(404, "schedule not found")
+    return schedule
+
+
+@app.get("/api/schedules")
+def api_list_schedules():
+    return [_schedule_view(s) for s in store.list_schedules()]
+
+
+@app.post("/api/schedules")
+def api_create_schedule(body: ScheduleIn):
+    next_run_at = _validate_schedule(body)
+    schedule_id = store.create_schedule(**body.model_dump(), next_run_at=next_run_at if body.enabled else None)
+    return _schedule_view(store.get_schedule(schedule_id))
+
+
+@app.post("/api/schedules/preview")
+def api_preview_cron(body: CronPreviewIn):
+    try:
+        ZoneInfo(body.timezone)
+        times = cron.upcoming(body.cron, body.timezone, datetime.now(timezone.utc), count=5)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise HTTPException(400, str(exc) or "unknown time zone")
+    return {"next": [t.timestamp() for t in times]}
+
+
+@app.get("/api/schedules/{schedule_id}")
+def api_get_schedule(schedule_id: int):
+    return _schedule_view(_schedule_or_404(schedule_id))
+
+
+@app.put("/api/schedules/{schedule_id}")
+def api_update_schedule(schedule_id: int, body: ScheduleIn):
+    _schedule_or_404(schedule_id)
+    next_run_at = _validate_schedule(body)
+    store.update_schedule(schedule_id, **body.model_dump(), next_run_at=next_run_at if body.enabled else None)
+    return _schedule_view(store.get_schedule(schedule_id))
+
+
+@app.delete("/api/schedules/{schedule_id}")
+def api_delete_schedule(schedule_id: int):
+    _schedule_or_404(schedule_id)
+    store.delete_schedule(schedule_id)
+    return {"ok": True}
+
+
+@app.post("/api/schedules/{schedule_id}/run")
+def api_run_schedule_now(schedule_id: int):
+    schedule = _schedule_or_404(schedule_id)
+    scheduler: Scheduler = _state["scheduler"]  # type: ignore[assignment]
+    return scheduler.start_schedule_run(schedule, time.time())
+
+
+@app.get("/api/schedules/{schedule_id}/runs")
+def api_schedule_runs(schedule_id: int):
+    _schedule_or_404(schedule_id)
+    return store.list_schedule_runs(schedule_id)
+
+
+# -- GitHub changes made by a session --------------------------------------
+
+@app.get("/api/sessions/{session_id}/github")
+def api_session_github_calls(session_id: int):
+    _get_or_404(session_id)
+    return store.list_tool_calls(session_id)
+
+
+@app.post("/api/sessions/{session_id}/github/undo")
+def api_undo_session_github(session_id: int):
+    session = _get_or_404(session_id)
+    if session["status"] in ("running", "queued"):
+        raise HTTPException(409, "stop the session before undoing its GitHub changes")
+    results = github_tools.undo_session(session_id)
+    store.append_log(session_id, "system",
+                     f"Undid {sum(r['undone'] for r in results)} GitHub change(s) from the UI")
+    return results
 
 
 @app.get("/api/security")

@@ -67,6 +67,14 @@ def entry(m):
 print(json.dumps({m["key"]: entry(m) for m in models}))
 ')
 
+# Bertha's GitHub tools, when this session has them: an MCP server that holds
+# the token itself, reached with a key that's only valid for this turn and
+# this repo (app/github_tools.py). The agent sees tools, never a token.
+MCP_BLOCK=""
+if [ -n "${GITHUB_TOOLS_URL:-}" ] && [ -n "${GITHUB_TOOLS_KEY:-}" ]; then
+    MCP_BLOCK="  \"mcp\": { \"github\": { \"type\": \"remote\", \"url\": \"${GITHUB_TOOLS_URL}\", \"enabled\": true, \"headers\": { \"Authorization\": \"Bearer ${GITHUB_TOOLS_KEY}\" } } },"
+fi
+
 # What Bertha knows about this repo (its wiki), loaded with the working
 # practices as standing instructions, the way CLAUDE.md is in Claude Code.
 mkdir -p "$HOME/factory"
@@ -83,7 +91,8 @@ cat > "$HOME/.config/opencode/opencode.jsonc" <<EOF
       "models": ${MODELS_BLOCK}
     }
   },
-  "skills": { "paths": ["${HOME}/skills"] },
+  "skills": { "paths": ["${HOME}/skills", "/data/repo/.claude/skills"] },
+${MCP_BLOCK}
   "agent": { "build": { "steps": ${AGENT_STEPS:-25} } },
   "tool_output": { "max_lines": 200, "max_bytes": 8192 },
   "instructions": ["/opt/factory/WORKING.md", "${HOME}/factory/repo-context.md"],
