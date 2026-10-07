@@ -74,7 +74,9 @@ SETTINGS: tuple[Setting, ...] = (
         key="working_context",
         label="Working context (tokens)",
         help="The agent compacts its conversation when it reaches this size, rather than at the model's full context. Smaller keeps each step fast; too small loses detail. Capped at the model's loaded context.",
-        default=49_152,
+        # 64k: measured on an M5 Pro with Qwen 35B-A3B, cached steps stay under
+        # 2s and a full reprocess after compaction takes about a minute.
+        default=65_536,
         minimum=16_384,
         maximum=1_048_576,
         env=None,
