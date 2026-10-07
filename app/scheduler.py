@@ -144,9 +144,6 @@ class Scheduler:
         self.runner = runner
         self.gh = gh
         self._ask_clients: dict[int, httpx.Client] = {}
-        # Per code session, the log entry its running turn is writing into and
-        # how much of the container's output has been copied there.
-        self._streamed: dict[int, tuple[int, int]] = {}
         self._lock = threading.Lock()
 
     def tick_fast(self) -> None:
@@ -308,7 +305,7 @@ class Scheduler:
             return client is not None
         if session["container_id"]:
             self.runner.remove(session["container_id"])
-        self._streamed.pop(session["id"], None)
+        store.update_session(session["id"], stream_log_id=None)
         store.revoke_grants(session["id"])
         if session.get("schedule_id"):
             store.finish_schedule_run(session["id"], "stopped")
@@ -471,6 +468,10 @@ class Scheduler:
             "RELEVANT_CODE": relevant_code(self.settings, session["repo"], prompt) if session["repo"] else "",
             # How far this turn may run: steps, continuations, timeout, token budget.
             **agent_settings.env_for_turn(),
+            # A scheduled run is bounded by the schedule's own timeout, not the
+            # per-run setting: its run may use whatever time is left.
+            **({"AGENT_RUN_TIMEOUT_SECONDS": str(max(60, int(session["deadline_at"] - time.time())))}
+               if session.get("deadline_at") else {}),
             # Every enabled model, so OpenCode knows the full set it can switch to.
             "MODELS_JSON": json.dumps([
                 {"key": m["key"], "model_id": m["model_id"],
@@ -511,9 +512,9 @@ class Scheduler:
             store.update_session(session["id"], status="failed", attention="failed")
             store.append_log(session["id"], "system", "Failed to start container")
             return
-        self._streamed.pop(session["id"], None)
         store.update_session(
             session["id"],
+            stream_log_id=None,
             status="running",
             container_id=container_id,
             pending_message=None,
@@ -544,34 +545,28 @@ class Scheduler:
             logs = self.runner.logs(session["container_id"])
         except Exception:
             return  # the next tick tries again
-        sent = self._streamed.get(session["id"])
-        if sent is None:
-            log_id, offset = None, 0
-        else:
-            log_id, offset = sent
-        new = logs[offset:]
-        cut = new.rfind("\n")
+        cut = logs.rfind("\n")
         if cut < 0:
             return
-        chunk = new[: cut + 1]
-        if log_id is None:
-            log_id = store.append_log(session["id"], "agent_output", chunk)
+        self._write_turn_output(session, logs[: cut + 1])
+
+    def _write_turn_output(self, session: dict[str, Any], output: str) -> None:
+        """Sets this turn's output entry to the container's output so far.
+        The entry is remembered on the session row, and its content replaced
+        rather than appended to, so an API restart mid-turn can't duplicate or
+        drop output."""
+        log_id = session.get("stream_log_id")
+        if log_id:
+            store.set_log_content(log_id, output)
         else:
-            store.extend_log(log_id, chunk)
-        self._streamed[session["id"]] = (log_id, offset + len(chunk))
+            log_id = store.append_log(session["id"], "agent_output", output)
+            store.update_session(session["id"], stream_log_id=log_id)
+            session["stream_log_id"] = log_id
 
     def _finish_code_turn(self, session: dict[str, Any], container: Any) -> None:
         logs = self.runner.logs(session["container_id"])
-        # Whatever the stream hasn't copied yet, which is the last partial line
-        # and anything after the final tick. Without a stream, all of it.
-        sent = self._streamed.pop(session["id"], None)
-        if sent is None:
-            store.append_log(session["id"], "agent_output", logs)
-        else:
-            log_id, offset = sent
-            rest = logs[offset:]
-            if rest:
-                store.extend_log(log_id, rest)
+        self._write_turn_output(store.get_session(session["id"]) or session, logs)
+        store.update_session(session["id"], stream_log_id=None)
         exit_code = container.attrs.get("State", {}).get("ExitCode", 1)
         self.runner.remove(session["container_id"])
 
@@ -588,6 +583,11 @@ class Scheduler:
                     harness_session_id = value
 
         agent_failed = "FACTORY_AGENT_FAILED=1" in logs
+        if "FACTORY_RUN_TIMED_OUT=1" in logs:
+            store.append_log(session["id"], "system", "The agent run went past its time limit and was stopped")
+            if session.get("schedule_id"):
+                # Recorded before _settle, which would otherwise record a plain failure.
+                store.finish_schedule_run(session["id"], "timed_out", "the agent run went past the time left")
         if exit_code != 0 or agent_failed:
             new_status = "failed"
         elif session["repo"]:

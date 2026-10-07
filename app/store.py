@@ -243,6 +243,9 @@ def _add_missing_session_columns(conn: sqlite3.Connection) -> None:
     if "model_pinned" not in cols:
         # 1 when the user chose the model; routing leaves a pinned session alone.
         conn.execute("ALTER TABLE sessions ADD COLUMN model_pinned INTEGER NOT NULL DEFAULT 0")
+    if "stream_log_id" not in cols:
+        # The log entry a running code turn's output streams into.
+        conn.execute("ALTER TABLE sessions ADD COLUMN stream_log_id INTEGER")
     if "github_tools" not in cols:
         # 1 when the agent gets the GitHub tools (app/github_tools.py) for its repo.
         conn.execute("ALTER TABLE sessions ADD COLUMN github_tools INTEGER NOT NULL DEFAULT 0")
@@ -441,6 +444,7 @@ _ALLOWED_FIELDS = {
     "github_tools",
     "schedule_id",
     "deadline_at",
+    "stream_log_id",
 }
 
 
@@ -473,6 +477,11 @@ def append_log(session_id: int, kind: str, content: str) -> int:
             (session_id, kind, content, time.time()),
         )
         return cur.lastrowid
+
+
+def set_log_content(log_id: int, content: str) -> None:
+    with _connect() as conn:
+        conn.execute("UPDATE session_logs SET content = ? WHERE id = ?", (content, log_id))
 
 
 def extend_log(log_id: int, content: str) -> None:
