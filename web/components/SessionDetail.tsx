@@ -5,6 +5,7 @@ import type { LogEntry, Model, Session } from "@/lib/types";
 import { Markdown } from "./Markdown";
 import { AgentOutputLog } from "./AgentOutputLog";
 import { GitHubChanges } from "./GitHubChanges";
+import { ScheduleLink } from "./ScheduleLink";
 import {
   MessageRow,
   MessageBubble,
@@ -120,6 +121,7 @@ export function SessionDetail({
           <span className={`pill pill-type-${session.session_type}`}>{session.session_type}</span>{" "}
           <span className="ref">{session.ref}</span>
           <h2>{session.title || "(untitled)"}</h2>
+          {session.schedule_id != null && <ScheduleLink scheduleId={session.schedule_id} />}
         </div>
         <div id="detail-meta">
           <span className={`status status-${session.status}`}>{session.status}</span>
