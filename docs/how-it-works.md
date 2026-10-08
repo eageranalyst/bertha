@@ -285,7 +285,7 @@ under review can't be pushed or marked ready by the agent.
 
 Changes apply directly, so there are guardrails: only the session's repo, no
 deletes or merges, only labels the repo already has, and per-turn limits on
-edits, closures and pushes (Settings). Every change except a push is
+edits, closures and pushes (Settings → Agent). Every change except a push is
 recorded with the values before it, and the session's **GitHub changes**
 panel can undo a run's changes.
 
@@ -378,11 +378,11 @@ does most of the work, the way hosted agents do it:
   environment. Cloning, pushing and opening the PR happen in the entrypoint,
   outside the agent. A repo's own `opencode.json` is ignored, so it can't
   loosen the agent's permissions.
-- **Resources.** Each container gets memory and CPU limits (Settings) and a
+- **Resources.** Each container gets memory and CPU limits (Settings → Agent) and a
   process cap.
 - **GitHub.** Use a fine-grained token limited to the registered repos
   (Contents and Pull requests: read and write), and protect each repo's
-  default branch so agent PRs need review. Settings → General shows both.
+  default branch so agent PRs need review. Settings → Security checkup shows both.
 
 ## Models
 
@@ -472,7 +472,7 @@ app/
   specs.py          spec-first sessions
   models.py         model registry: discovery, tiers, choosing a model
   routing.py        per-turn model routing
-  agent_settings.py limits on code turns (Settings)
+  agent_settings.py limits on code turns (Settings → Agent)
   cron.py           cron expressions for schedules
   skills.py         SKILL.md parsing for the skills library
   code_index.py     embedding-based code search for agents
@@ -491,8 +491,8 @@ docs/               this guide, and the logo
 web/                Next.js/TypeScript UI, its own process (npm run dev)
   app/icon.svg      favicon: a simplified Bertha logo
   app/(console)/    one route per tab: sessions, repos (metadata, wiki,
-                    skills, context), schedules, skills, settings (general,
-                    models)
+                    skills, context), schedules, skills, settings (agent,
+                    models, security)
   components/       UI components; images/ holds the SVG mascots and logo
   lib/              api.ts (typed fetch client), types.ts, format.ts, ...
 ```

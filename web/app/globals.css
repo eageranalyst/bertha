@@ -990,3 +990,9 @@ code.hljs { padding: 3px 5px; }
 @keyframes todo-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
 .plan-chip-body { padding: 4px 12px 8px; border-top: 1px solid var(--border-soft); }
+
+/* -- save bar: Save and Discard at the top and bottom of a settings page -- */
+
+.save-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
+.save-bar-status { font-size: 12.5px; color: var(--text-dim); }
+.save-bar-status.unsaved { color: var(--warn); font-weight: 500; }
