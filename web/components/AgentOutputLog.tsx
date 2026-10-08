@@ -1,6 +1,7 @@
 import { parseAgentLog, type ToolEvent } from "@/lib/parseAgentLog";
 import { Markdown } from "./Markdown";
 import { MessageRow, MessageBubble } from "./ChatPrimitives";
+import { TodoChecklist, todoProgress } from "./TodoList";
 
 const TOOL_ICONS: Record<string, string> = {
   bash: "▶",
@@ -44,6 +45,9 @@ export function AgentOutputLog({ content, time }: { content: string; time: strin
               </MessageBubble>
             );
           }
+          if (seg.event.todos) {
+            return <PlanChip key={i} todos={seg.event.todos} />;
+          }
           return <ActionChip key={i} event={seg.event} />;
         })}
       </div>
@@ -64,6 +68,25 @@ function ActionChip({ event }: { event: ToolEvent }) {
         {failed && <span className="tool-badge">rejected</span>}
       </summary>
       {body && <pre className={event.diff ? "tool-diff" : "tool-output"}>{body}</pre>}
+    </details>
+  );
+}
+
+/** A to-do list update: the progress, and the list when opened. */
+function PlanChip({ todos }: { todos: NonNullable<ToolEvent["todos"]> }) {
+  const { done, total } = todoProgress(todos);
+  return (
+    <details className="action-chip plan-chip">
+      <summary>
+        <span className="action-icon">☑</span>
+        <span className="action-tool">plan</span>
+        <span className="action-title">
+          Updated · {done}/{total} done
+        </span>
+      </summary>
+      <div className="plan-chip-body">
+        <TodoChecklist todos={todos} />
+      </div>
     </details>
   );
 }

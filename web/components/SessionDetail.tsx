@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { latestTodos } from "@/lib/parseAgentLog";
 import type { LogEntry, Model, Session } from "@/lib/types";
 import { Markdown } from "./Markdown";
 import { AgentOutputLog } from "./AgentOutputLog";
 import { GitHubChanges } from "./GitHubChanges";
 import { ScheduleLink } from "./ScheduleLink";
 import { SpecPanel } from "./SpecPanel";
+import { TodoFloat } from "./TodoList";
 import {
   MessageRow,
   MessageBubble,
@@ -89,6 +91,11 @@ export function SessionDetail({
     if (confirmed) setPendingEcho(null);
   }, [logs, pendingEcho]);
 
+  // The agent's latest to-do list, floated over the transcript.
+  const todos = useMemo(
+    () => latestTodos(logs.filter((l) => l.kind === "agent_output").map((l) => l.content)),
+    [logs],
+  );
   const lastUserMessage = [...logs].reverse().find((l) => l.kind === "user_message");
   const workingSince =
     pendingEcho?.at ?? lastUserMessage?.created_at ?? session.last_activity_at;
@@ -194,6 +201,10 @@ export function SessionDetail({
 
       {session.spec_phase && <SpecPanel session={session} onApprove={onApproveSpec} onAbandon={onAbandonSpec} />}
 
+      <div className="logs-wrap">
+      {todos && todos.length > 0 && (
+        <TodoFloat todos={todos} running={session.status === "running"} sessionId={session.id} />
+      )}
       <div id="detail-logs" ref={logsRef} onScroll={onLogsScroll}>
         <div ref={logsContentRef}>
         {logs.map((l) => {
@@ -224,6 +235,7 @@ export function SessionDetail({
           <WorkingIndicator since={workingSince} queued={session.status === "queued"} />
         )}
         </div>
+      </div>
       </div>
 
       {session.repo && <GitHubChanges session={session} />}

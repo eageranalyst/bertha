@@ -939,3 +939,50 @@ code.hljs { padding: 3px 5px; }
 .theme-switch button:hover { color: var(--text); }
 .theme-switch button[aria-pressed="true"] { background: var(--bg-raised); color: var(--text); box-shadow: 0 1px 2px var(--shadow-soft); }
 .theme-switch svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* -- the agent's plan: floating to-do list and plan chips ------------------ */
+
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.logs-wrap { flex: 1; position: relative; display: flex; flex-direction: column; min-height: 0; }
+.todo-float {
+  position: absolute; top: 10px; right: 18px; z-index: 5;
+  width: min(320px, calc(100% - 36px)); max-height: calc(100% - 20px);
+  display: flex; flex-direction: column;
+  background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 8px 24px var(--shadow-soft);
+}
+.todo-float:not(.open) { width: min(240px, calc(100% - 36px)); }
+.todo-float-head {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: transparent; color: var(--text); padding: 8px 12px; border-radius: var(--radius); text-align: left;
+}
+.todo-float-head:hover { background: var(--bg-sunken); }
+.todo-float-title { font-size: 12px; font-weight: 600; }
+.todo-float-count { font-size: 11.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.todo-float-bar { flex: 1; height: 4px; border-radius: 2px; background: var(--bg-sunken); overflow: hidden; }
+.todo-float-bar span { display: block; height: 100%; background: var(--ok); border-radius: 2px; transition: width 0.3s ease; }
+.todo-float-toggle { color: var(--text-faint); font-size: 14px; width: 12px; text-align: center; }
+.todo-float-current { padding: 0 12px 8px; font-size: 11.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.todo-float-body { overflow-y: auto; padding: 2px 12px 10px; border-top: 1px solid var(--border-soft); }
+
+.todo-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.todo-item { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; font-size: 12.5px; line-height: 1.45; }
+.todo-item + .todo-item { border-top: 1px solid var(--border-soft); }
+.todo-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.todo-completed .todo-text { color: var(--text-faint); text-decoration: line-through; text-decoration-color: var(--border); }
+.todo-in_progress .todo-text { color: var(--text); font-weight: 500; }
+.todo-pending .todo-text { color: var(--text-dim); }
+.todo-cancelled .todo-text { color: var(--text-faint); text-decoration: line-through; }
+.todo-mark { width: 15px; height: 15px; flex-shrink: 0; margin-top: 1px; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.todo-mark.done circle { fill: var(--ok); stroke: var(--ok); }
+.todo-mark.done path { stroke: var(--bg-raised); stroke-width: 2; }
+.todo-mark.active { stroke: var(--accent); }
+.todo-mark.active .todo-mark-dot { fill: var(--accent); stroke: none; }
+.todo-mark.pending { stroke: var(--text-faint); }
+.todo-mark.cancelled { stroke: var(--text-faint); }
+@media (prefers-reduced-motion: no-preference) {
+  .todo-mark.active .todo-mark-dot { animation: todo-pulse 1.6s ease-in-out infinite; }
+}
+@keyframes todo-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.plan-chip-body { padding: 4px 12px 8px; border-top: 1px solid var(--border-soft); }
