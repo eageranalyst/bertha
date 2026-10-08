@@ -166,7 +166,7 @@ class DockerRunner:
         return container.id
 
     def push_branch(self, workspace: str, env: dict[str, str], model_port: int) -> str:
-        """Runs agent_image/push.sh on a session's volume while its agent may
+        """Runs images/agent/push.sh on a session's volume while its agent may
         still be running, and returns its output. A separate container, so
         the token never enters the agent's."""
         container = self._run(

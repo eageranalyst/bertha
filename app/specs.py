@@ -10,7 +10,7 @@ Phases, stored on the session as `spec_phase`:
                  is a normal PR session
     abandoned -> closed without building
 
-Spec turns may only write the spec file (agent_image/entrypoint.sh throws
+Spec turns may only write the spec file (images/agent/entrypoint.sh throws
 away anything else), so a spec can't quietly turn into an implementation.
 """
 

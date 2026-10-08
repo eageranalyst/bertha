@@ -47,8 +47,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("factory.main")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-AGENT_IMAGE_DIR = BASE_DIR / "agent_image"
-WIKI_IMAGE_DIR = BASE_DIR / "wiki_image"
+AGENT_IMAGE_DIR = BASE_DIR / "images" / "agent"
+WIKI_IMAGE_DIR = BASE_DIR / "images" / "wiki"
 
 _state: dict[str, object] = {}
 

@@ -1,6 +1,6 @@
 """GitHub tools for agents, as an MCP server, so agents never hold a token.
 
-Agents have no GitHub credentials (see agent_image/entrypoint.sh). Each turn
+Agents have no GitHub credentials (see images/agent/entrypoint.sh). Each turn
 of a session with a repo gets a key (a grant) scoped to that repo, and
 OpenCode is pointed at this server with it. The server holds the token,
 checks the key, and does the call. Like a GitHub App installation, but the

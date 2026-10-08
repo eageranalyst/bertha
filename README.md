@@ -61,7 +61,7 @@ unattended (no TTY to answer a prompt), rather than hanging or
 silently executing. `edit` is left `"allow"` (the agent's actual job,
 already bounded to the checked-out repo tree); `webfetch` and
 `websearch` are denied by default to shrink the unattended attack
-surface -- loosen either in `agent_image/entrypoint.sh` if a repo
+surface -- loosen either in `images/agent/entrypoint.sh` if a repo
 needs them.
 
 That narrows *what* an unattended turn can do, but two things are
@@ -173,7 +173,7 @@ subtabs:
 
 Indexing is on demand: nothing is indexed until you press **Index
 wiki** (or **Re-index** / **Rebuild** on a repo that already has one).
-Each build runs in its own container from `wiki_image/` (the same
+Each build runs in its own container from `images/wiki/` (the same
 approach code sessions use), so the repo is cloned and scanned in
 isolation. The container shallow-clones the repo, runs the
 deterministic scan (`app/wiki_scan.py`), writes each applicable page
@@ -235,7 +235,7 @@ when the turn ends. What the key allows:
 | Open, edit and comment on its **own PR**; push its branch mid-turn | ✅ | ✅ |
 
 Dry runs only read. "Own" comes from the session record, not from the agent.
-Pushes run in a separate short-lived container (`agent_image/push.sh`), so
+Pushes run in a separate short-lived container (`images/agent/push.sh`), so
 the agent's container never holds the token: the agent's changes are
 bundled without the token and pushed from a fresh repository, to the
 session's branch only and never forced. Bertha still commits, pushes and
@@ -269,13 +269,13 @@ session.
 anything the agent wrote. It stops the agent's leftover processes, uses a
 global git and `gh` config outside the workspace, and rewrites the repo's
 `.git/config` with hooks off before committing and pushing
-(`agent_image/git_safe.sh`).
+(`images/agent/git_safe.sh`).
 
 ## Agent performance
 
 What the agent gets, besides the task:
 
-- **Working practices** (`agent_image/WORKING.md`) and **repo context**: the
+- **Working practices** (`images/agent/WORKING.md`) and **repo context**: the
   wiki's conventions, overview, architecture, testing and getting-started
   pages, plus a **repo map** of each source file and its top-level
   definitions.
@@ -392,7 +392,7 @@ Docker Desktop; on Linux Docker Engine `docker_runner.py` already adds
 the `host-gateway` mapping that makes it work there too).
 
 Docker must be running locally; the first start builds the agent image
-from `agent_image/`.
+from `images/agent/`.
 
 ```bash
 uvicorn app.main:app --reload --port 8787
@@ -423,10 +423,10 @@ app/
   wiki_worker.py    the wiki container's entrypoint
   wiki_indexer.py   host side: starts a build container, follows it, stores the result
   main.py           FastAPI routes + CORS for the web/ origin
-agent_image/
+images/agent/
   Dockerfile        node+python+git+gh+opencode base image
   entrypoint.sh      clone/resume, run opencode, push, gh pr create
-wiki_image/
+images/wiki/
   Dockerfile        python + git, for wiki build containers
 web/                Next.js/TypeScript UI, its own process (npm run dev)
   app/              layout, globals.css, the one page (Sessions / Repos tabs)
