@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { fmtTime } from "@/lib/format";
-import { CRON_PRESETS, SCHEDULE_TEMPLATES } from "@/lib/scheduleTemplates";
+import { CRON_PRESETS } from "@/lib/cronPresets";
 import type { Model, Repo, ScheduleInput } from "@/lib/types";
 
 /** The browser's time zone: schedules are entered and shown in local time. */
@@ -87,8 +87,6 @@ export function ScheduleForm({
     }
   }
 
-  const template = SCHEDULE_TEMPLATES[0];
-
   return (
     <div className="schedule-form">
       <div className="form-row">
@@ -110,22 +108,9 @@ export function ScheduleForm({
 
       <div className="form-row form-row-top">
         <label htmlFor="sched-prompt">Prompt</label>
-        <div className="form-stack">
-          <textarea id="sched-prompt" className="skill-textarea" value={value.prompt}
-                    onChange={(e) => set("prompt", e.target.value)}
-                    placeholder="What should the agent do on each run?" />
-          <div>
-            <button type="button" className="btn-ghost" onClick={() => setValue((v) => ({
-              ...v,
-              prompt: template.prompt,
-              name: v.name || template.name,
-              github_tools: Boolean(v.repo),
-              session_type: "code",
-            }))}>
-              Use the {template.label} template
-            </button>
-          </div>
-        </div>
+        <textarea id="sched-prompt" className="skill-textarea" value={value.prompt}
+                  onChange={(e) => set("prompt", e.target.value)}
+                  placeholder={"What should the agent do on each run? A skill can hold the how-to, for example:\n\nGroom this repository's open GitHub issues with the bertha-groom skill.\n\n(A groom changes issues, so tick “Let the agent change and close any issue” below.)"} />
       </div>
 
       <div className="form-row form-row-top">
