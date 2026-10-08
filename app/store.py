@@ -218,6 +218,28 @@ CREATE TABLE IF NOT EXISTS repo_skills (
     created_at REAL NOT NULL,
     PRIMARY KEY (repo, skill_id)
 );
+
+-- Lessons for agents, drawn from what happened in sessions: rules from
+-- reviewers' comments on a PR, and the cause and fix of a CI failure Bertha
+-- fixed. Each starts as a candidate; only saved notes reach agents.
+-- source_json says where it came from (session, PR, comments, CI jobs).
+CREATE TABLE IF NOT EXISTS context_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'candidate',
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    quote TEXT NOT NULL DEFAULT '',
+    source_json TEXT NOT NULL DEFAULT '{}',
+    score INTEGER NOT NULL DEFAULT 0,
+    uses INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    reviewed_at REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_context_notes_repo ON context_notes(repo, status);
 """
 
 
@@ -293,6 +315,20 @@ def _add_missing_session_columns(conn: sqlite3.Connection) -> None:
     if model_cols and "loaded" not in model_cols:
         # 1 loaded in the server now, 0 not loaded, null unknown.
         conn.execute("ALTER TABLE models ADD COLUMN loaded INTEGER")
+    session_cols = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+    if "context_harvested_at" not in session_cols:
+        # When the session's closed PR was read for review notes.
+        conn.execute("ALTER TABLE sessions ADD COLUMN context_harvested_at REAL")
+    if "ci_failed_sha" not in session_cols:
+        # The commit CI last failed on while Bertha fixes it, for the CI note.
+        conn.execute("ALTER TABLE sessions ADD COLUMN ci_failed_sha TEXT")
+    index_cols = {row[1] for row in conn.execute("PRAGMA table_info(wiki_indexes)").fetchall()}
+    if "dirty_since" not in index_cols:
+        # Set when a PR merges into the default branch after the last build.
+        conn.execute("ALTER TABLE wiki_indexes ADD COLUMN dirty_since REAL")
+        conn.execute("ALTER TABLE wiki_indexes ADD COLUMN dirty_reason TEXT")
+        # Merged PRs up to here have been looked at.
+        conn.execute("ALTER TABLE wiki_indexes ADD COLUMN merges_checked_at REAL")
     log_cols = {row[1] for row in conn.execute("PRAGMA table_info(session_logs)").fetchall()}
     if "updated_at" not in log_cols:
         conn.execute("ALTER TABLE session_logs ADD COLUMN updated_at REAL")
@@ -482,6 +518,8 @@ _ALLOWED_FIELDS = {
     "comments_seen_at",
     "ci_sha",
     "ci_fix_attempts",
+    "context_harvested_at",
+    "ci_failed_sha",
 }
 
 
@@ -598,7 +636,8 @@ def delete_repo(repo_id: int) -> None:
 
 # -- wiki -------------------------------------------------------------
 
-_WIKI_INDEX_FIELDS = {"status", "progress", "commit_sha", "scan", "error", "last_indexed_at"}
+_WIKI_INDEX_FIELDS = {"status", "progress", "commit_sha", "scan", "error", "last_indexed_at",
+                      "dirty_since", "dirty_reason", "merges_checked_at"}
 
 
 def get_wiki_index(repo: str) -> dict[str, Any] | None:
@@ -656,6 +695,33 @@ def fail_interrupted_wiki_indexes() -> None:
             WHERE status = 'indexing'
             """,
             (time.time(),),
+        )
+
+
+def list_wiki_indexes() -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT repo FROM wiki_indexes").fetchall()
+    return [index for r in rows if (index := get_wiki_index(r["repo"]))]
+
+
+def mark_wiki_dirty(repo: str, reason: str, at: float) -> None:
+    """Keeps the first reason: the wiki is out of date from then on."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE wiki_indexes SET dirty_since = ?, dirty_reason = ?, updated_at = ? "
+            "WHERE repo = ? AND dirty_since IS NULL",
+            (at, reason, time.time(), repo),
+        )
+
+
+def clear_wiki_dirty(repo: str, before: float) -> None:
+    """A build that started at `before` covers merges made until then; a
+    merge noticed after it started leaves the wiki dirty."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE wiki_indexes SET dirty_since = NULL, dirty_reason = NULL "
+            "WHERE repo = ? AND dirty_since <= ?",
+            (repo, before),
         )
 
 
@@ -1168,3 +1234,78 @@ def set_settings_values(values: dict[str, str]) -> None:
             """,
             [(k, v, now) for k, v in values.items()],
         )
+
+
+# -- agent context notes ----------------------------------------------------
+
+CONTEXT_STATUSES = ("candidate", "saved", "rejected")
+
+
+def _note(row: sqlite3.Row) -> dict[str, Any]:
+    note = _row_to_dict(row)
+    note["source"] = json.loads(note.pop("source_json") or "{}")
+    return note
+
+
+def create_context_note(repo: str, kind: str, title: str, body: str, quote: str, source: dict[str, Any]) -> int:
+    now = time.time()
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO context_notes (repo, kind, title, body, quote, source_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (repo, kind, title, body, quote, json.dumps(source), now, now),
+        )
+        return cur.lastrowid
+
+
+def list_context_notes(repo: str | None = None, status: str | None = None) -> list[dict[str, Any]]:
+    where, params = [], []
+    if repo:
+        where.append("repo = ?")
+        params.append(repo)
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+    with _connect() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM context_notes {clause} ORDER BY score DESC, created_at DESC", params
+        ).fetchall()
+        return [_note(r) for r in rows]
+
+
+def get_context_note(note_id: int) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM context_notes WHERE id = ?", (note_id,)).fetchone()
+        return _note(row) if row else None
+
+
+def update_context_note(note_id: int, **fields: Any) -> None:
+    unknown = set(fields) - {"title", "body", "status"}
+    if unknown:
+        raise ValueError(f"unknown context note fields: {unknown}")
+    if fields.get("status") not in (None, *CONTEXT_STATUSES):
+        raise ValueError(f"unknown status: {fields['status']}")
+    now = time.time()
+    if "status" in fields:
+        fields["reviewed_at"] = now
+    fields["updated_at"] = now
+    assignments = ", ".join(f"{k} = ?" for k in fields)
+    with _connect() as conn:
+        conn.execute(f"UPDATE context_notes SET {assignments} WHERE id = ?", [*fields.values(), note_id])
+
+
+def vote_context_note(note_id: int, delta: int) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE context_notes SET score = score + ?, updated_at = ? WHERE id = ?",
+            (1 if delta > 0 else -1, time.time(), note_id),
+        )
+
+
+def count_context_note_use(note_id: int) -> None:
+    """An agent read the note."""
+    with _connect() as conn:
+        conn.execute("UPDATE context_notes SET uses = uses + 1 WHERE id = ?", (note_id,))

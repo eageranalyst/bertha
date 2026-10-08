@@ -70,12 +70,20 @@ print(json.dumps({m["key"]: entry(m) for m in models}))
 # Bertha's GitHub tools, when this session has them: an MCP server that holds
 # the token itself, reached with a key that's only valid for this turn and
 # this repo (app/github_tools.py). The agent sees tools, never a token.
+# The same key opens Bertha's context tools (app/context_tools.py): the wiki,
+# code map, code search and saved notes, which the standing context only lists.
 MCP_BLOCK=""
 if [ -n "${GITHUB_TOOLS_URL:-}" ] && [ -n "${GITHUB_TOOLS_KEY:-}" ]; then
-    MCP_BLOCK="  \"mcp\": { \"github\": { \"type\": \"remote\", \"url\": \"${GITHUB_TOOLS_URL}\", \"enabled\": true, \"headers\": { \"Authorization\": \"Bearer ${GITHUB_TOOLS_KEY}\" } } },"
+    AUTH="\"headers\": { \"Authorization\": \"Bearer ${GITHUB_TOOLS_KEY}\" }"
+    MCP_BLOCK="  \"mcp\": { \"github\": { \"type\": \"remote\", \"url\": \"${GITHUB_TOOLS_URL}\", \"enabled\": true, ${AUTH} }"
+    if [ -n "${CONTEXT_TOOLS_URL:-}" ]; then
+        MCP_BLOCK="${MCP_BLOCK}, \"bertha\": { \"type\": \"remote\", \"url\": \"${CONTEXT_TOOLS_URL}\", \"enabled\": true, ${AUTH} }"
+    fi
+    MCP_BLOCK="${MCP_BLOCK} },"
 fi
 
-# What Bertha knows about this repo (its wiki), loaded with the working
+# What Bertha knows about this repo (a summary of its wiki and the notes people
+# saved, with the rest behind the context tools), loaded with the working
 # practices as standing instructions, the way CLAUDE.md is in Claude Code.
 mkdir -p "$HOME/factory"
 printf '%s\n' "${REPO_CONTEXT:-}" > "$HOME/factory/repo-context.md"

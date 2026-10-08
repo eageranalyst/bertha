@@ -31,7 +31,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import uvicorn
 
-from . import agent_settings, cron, github_tools
+from . import agent_settings, context_tools, cron, github_tools
 from . import models as model_registry
 from . import store
 from .config import get_settings
@@ -114,6 +114,7 @@ async def lifespan(app: FastAPI):
     # Build containers outlive this process; pick up their output again.
     wiki.resume()
     _state["wiki"] = wiki
+    scheduler.wiki = wiki  # rebuilds wikis that merges made out of date
     _state["threads"] = [fast_thread, slow_thread]
     tools_server = _start_tools_server(settings.tools_port)
     logger.info(
@@ -129,6 +130,8 @@ async def lifespan(app: FastAPI):
 def _start_tools_server(port: int) -> uvicorn.Server:
     """The GitHub tool server (app/github_tools.py) on its own port, so agent
     containers can be given a route to it without a route to this API."""
+    if not any(getattr(r, "path", None) == "/context/mcp" for r in github_tools.app.routes):
+        github_tools.app.include_router(context_tools.router)  # the context tools share the port and keys
     server = uvicorn.Server(uvicorn.Config(github_tools.app, host="127.0.0.1", port=port, log_level="warning"))
     threading.Thread(target=lambda: asyncio.run(server.serve()), name="factory-tools", daemon=True).start()
     return server
@@ -824,6 +827,53 @@ def api_security():
         "token_error": token_error,
         "repos": repos,
     }
+
+
+# -- agent context notes (app/agent_context.py) ------------------------
+
+
+class ContextNoteIn(BaseModel):
+    title: str | None = None
+    body: str | None = None
+    status: str | None = None
+
+
+class VoteIn(BaseModel):
+    delta: int
+
+
+def _note_or_404(note_id: int) -> dict[str, Any]:
+    note = store.get_context_note(note_id)
+    if not note:
+        raise HTTPException(404, "no such note")
+    return note
+
+
+@app.get("/api/context-notes")
+def api_list_context_notes(repo: str | None = None, status: str | None = None):
+    return store.list_context_notes(repo=repo, status=status)
+
+
+@app.patch("/api/context-notes/{note_id}")
+def api_update_context_note(note_id: int, body: ContextNoteIn):
+    _note_or_404(note_id)
+    fields = {k: v.strip() for k, v in body.model_dump().items() if v is not None}
+    if fields.get("status") and fields["status"] not in store.CONTEXT_STATUSES:
+        raise HTTPException(400, f"status must be one of {', '.join(store.CONTEXT_STATUSES)}")
+    if ("title" in fields and not fields["title"]) or ("body" in fields and not fields["body"]):
+        raise HTTPException(400, "a note needs a title and a body")
+    if fields:
+        store.update_context_note(note_id, **fields)
+    return store.get_context_note(note_id)
+
+
+@app.post("/api/context-notes/{note_id}/vote")
+def api_vote_context_note(note_id: int, body: VoteIn):
+    _note_or_404(note_id)
+    if body.delta not in (1, -1):
+        raise HTTPException(400, "delta must be 1 or -1")
+    store.vote_context_note(note_id, body.delta)
+    return store.get_context_note(note_id)
 
 
 @app.get("/api/settings")

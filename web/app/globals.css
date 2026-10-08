@@ -632,6 +632,37 @@ a:hover { text-decoration: underline; }
 .models-tier { display: flex; flex-direction: column; gap: 4px; width: 200px; flex-shrink: 0; }
 .models-tier-hint { font-size: 11.5px; color: var(--text-faint); line-height: 1.4; }
 
+/* -- agent context ---------------------------------------------------- */
+
+.context-filter { display: flex; gap: 6px; flex-wrap: wrap; }
+.context-filter button { background: var(--bg-sunken); color: var(--text-dim); border: 1px solid var(--border-soft); padding: 5px 12px; font-size: 12.5px; }
+.context-filter button.active { background: var(--accent-soft); color: var(--text); border-color: var(--accent); }
+.context-count { font-size: 11px; color: var(--text-faint); margin-left: 4px; }
+.context-list { display: flex; flex-direction: column; gap: 10px; }
+.context-card { display: flex; gap: 14px; padding: 14px 16px; border: 1px solid var(--border-soft); border-radius: var(--radius); background: var(--bg-raised); }
+.context-vote { display: flex; flex-direction: column; align-items: center; gap: 2px; flex-shrink: 0; font-size: 13px; font-weight: 600; }
+.context-vote button { background: transparent; color: var(--text-faint); padding: 2px 6px; font-size: 11px; }
+.context-vote button:hover { color: var(--accent); }
+.context-vote .negative { color: var(--danger); }
+.context-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.context-meta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 12px; color: var(--text-faint); }
+.context-title { margin: 0; font-size: 14px; font-weight: 600; }
+.context-body { margin: 0; font-size: 13px; line-height: 1.55; color: var(--text-dim); white-space: pre-wrap; }
+.context-edit { display: flex; flex-direction: column; gap: 8px; }
+.context-edit textarea { resize: vertical; line-height: 1.5; }
+.context-source { font-size: 12.5px; color: var(--text-dim); }
+.context-source summary { cursor: pointer; color: var(--text-faint); }
+.context-source blockquote { margin: 8px 0; padding: 6px 12px; border-left: 3px solid var(--border); color: var(--text-dim); white-space: pre-wrap; }
+.context-source ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.context-actions { display: flex; gap: 8px; margin-top: 4px; }
+.wiki-dirty { color: var(--warn); }
+.pill-note-review { background: #2a2140; color: #b9a4ff; }
+.pill-note-ci { background: #2a2416; color: var(--warn); }
+@media (max-width: 640px) {
+  .models-header { flex-direction: column; }
+  .context-card { padding: 12px; gap: 10px; }
+}
+
 /* -- skills ----------------------------------------------------------- */
 
 a.skill-row { display: block; color: inherit; text-decoration: none; }

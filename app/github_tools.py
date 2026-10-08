@@ -522,6 +522,18 @@ def ci_failure_report(repo: str, number: int) -> dict[str, Any]:
         }
 
 
+def compare_diff(repo: str, base: str, head: str, max_chars: int = 30_000) -> str:
+    """The change from one commit to another as a unified diff, per file,
+    trimmed to max_chars. For CI notes: what made a failing CI pass."""
+    with _client() as client:
+        compared = _check(client.get(f"/repos/{repo}/compare/{base}...{head}"))
+    parts = []
+    for f in compared.get("files", []):
+        parts.append(f"--- {f['filename']} ({f['status']})\n{f.get('patch') or '(no text diff)'}")
+    text = "\n\n".join(parts)
+    return text if len(text) <= max_chars else text[:max_chars] + "\n… (truncated)"
+
+
 def _set_draft(client: httpx.Client, pr: dict, draft: bool) -> None:
     mutation = "convertPullRequestToDraft" if draft else "markPullRequestReadyForReview"
     result = _check(client.post("/graphql", json={

@@ -209,6 +209,9 @@ export interface WikiIndex {
   last_indexed_at: number | null;
   /** When the index row last changed for any reason. */
   updated_at: number;
+  /** Set when a PR merged into the default branch after the last build. */
+  dirty_since: number | null;
+  dirty_reason: string | null;
 }
 
 export interface WikiPageSummary {
@@ -266,4 +269,37 @@ export interface RepoMetadata {
   github_error: string | null;
   sessions: { total: number; active: number; with_pr: number };
   wiki: WikiIndex | null;
+}
+
+export type ContextNoteStatus = "candidate" | "saved" | "rejected";
+
+/** A lesson for agents drawn from a session (app/agent_context.py). */
+export interface ContextNote {
+  id: number;
+  repo: string;
+  kind: "review" | "ci";
+  status: ContextNoteStatus;
+  title: string;
+  body: string;
+  /** The reviewer's words or CI log line it came from. */
+  quote: string;
+  source: {
+    session_id?: number;
+    session_ref?: string;
+    session_title?: string;
+    pr_number?: number;
+    pr_url?: string;
+    merged?: boolean;
+    comments?: { author: string; url: string; path?: string | null; line?: number | null }[];
+    jobs?: string[];
+    failed_sha?: string;
+    fixed_sha?: string;
+    compare_url?: string;
+  };
+  score: number;
+  /** How many times agents have read it. */
+  uses: number;
+  created_at: number;
+  updated_at: number;
+  reviewed_at: number | null;
 }

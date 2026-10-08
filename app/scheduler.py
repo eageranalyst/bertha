@@ -40,14 +40,14 @@ import json
 import logging
 import threading
 import time
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 
 import httpx
 
 from datetime import datetime, timezone
 
-from . import agent_settings, code_index, cron, github_tools, specs
+from . import agent_context, agent_settings, code_index, cron, github_tools, specs
 from . import models as model_registry
 from . import store
 from .routing import route as route_turn
@@ -58,12 +58,6 @@ from .github_client import GitHubClient
 logger = logging.getLogger("factory.scheduler")
 
 TERMINAL_STATUSES = {"closed", "archived"}
-
-# Wiki pages a coding agent gets as standing context, most useful first, and
-# the most text that adds to every turn's prompt.
-CONTEXT_PAGES = ("conventions", "overview", "architecture", "testing", "getting-started")
-CONTEXT_MAX_CHARS = 12_000
-
 
 _chunk_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 
@@ -109,40 +103,15 @@ def working_context(model: dict[str, Any]) -> int:
     return min(target, model["context_length"]) if model.get("context_length") else target
 
 
-def repo_context(repo: str) -> str:
-    """The repo's wiki pages as one markdown document, for the agent. Each
-    page's Sources list is dropped; it's links for people, not context.
-    Empty when the repo has no wiki yet.
-    """
-    parts = ["# Repository context", "",
-             f"Bertha's wiki for {repo}. It was written from the code, so check it "
-             "against the code when it matters.", ""]
-    used = sum(len(p) for p in parts)
-    for slug in CONTEXT_PAGES:
-        page = store.get_wiki_page(repo, slug)
-        if not page:
-            continue
-        body = page["body"].split("\n## Sources", 1)[0].strip()
-        section = f"## {page['title']}\n\n{body}\n"
-        if used + len(section) > CONTEXT_MAX_CHARS:
-            section = section[: max(0, CONTEXT_MAX_CHARS - used)].rstrip() + "\n… (truncated)\n"
-        parts.append(section)
-        used += len(section)
-        if used >= CONTEXT_MAX_CHARS:
-            break
-    code_map = store.get_code_map(repo)
-    if code_map and code_map["map"]:
-        parts.append(
-            "## Repository map\n\nEach source file with its top-level definitions, "
-            f"as of commit {code_map['commit_sha'][:7]}.\n\n```\n{code_map['map']}\n```\n"
-        )
-    return "\n".join(parts) if len(parts) > 4 else ""
 BUSY_OR_QUEUED = {"running", "queued"}
 # Turns Bertha starts to fix failing CI before handing it to you; reset when
 # CI passes or you send a message.
 CI_FIX_ATTEMPTS = 2
 # A push with no checks after this long is taken as a repo without CI.
 CI_GRACE_SECONDS = 600
+# How often a closed-PR check (for review notes) and a merged-PR check (for
+# wiki freshness) may call GitHub, per session and per repo.
+CONTEXT_CHECK_SECONDS = 600
 
 
 class Scheduler:
@@ -152,6 +121,12 @@ class Scheduler:
         self.gh = gh
         self._ask_clients: dict[int, httpx.Client] = {}
         self._lock = threading.Lock()
+        # Set by app/main.py: rebuilds out-of-date wikis.
+        self.wiki: Any = None
+        # When each session's PR / each repo's merges were last checked.
+        self._context_checked: dict[str, float] = {}
+        # Notes are written by the model one at a time, off the tick thread.
+        self._harvest_lock = threading.Lock()
 
     def tick_fast(self) -> None:
         """Everything local -- no GitHub calls, no external rate limit,
@@ -177,6 +152,8 @@ class Scheduler:
         self._check_spec_reviews()
         self._check_ci()
         self._check_sleeping()
+        self._harvest_reviews()
+        self._refresh_wikis()
 
     def _routed(self, session: dict[str, Any], prompt: str, session_type: str) -> dict[str, Any]:
         """The session as this turn should see it: routed to the model that
@@ -278,7 +255,9 @@ class Scheduler:
                                  limits["github_max_edits"], limits["github_max_closes"],
                                  scope=scope, max_pushes=limits["github_max_pushes"])
         host = "egress" if self.settings.egress_isolation else "host.docker.internal"
-        return {"GITHUB_TOOLS_URL": f"http://{host}:{self.settings.tools_port}/mcp", "GITHUB_TOOLS_KEY": key}
+        base = f"http://{host}:{self.settings.tools_port}"
+        return {"GITHUB_TOOLS_URL": f"{base}/mcp", "GITHUB_TOOLS_KEY": key,
+                "CONTEXT_TOOLS_URL": f"{base}/context/mcp"}
 
     def _settle(self, session_id: int, status: str, attention: str | None, **fields: Any) -> None:
         """Ends a turn. `attention` says what the session is waiting on
@@ -492,8 +471,10 @@ class Scheduler:
             "PROMPT": spec_env.pop("message", prompt),
             "OPENCODE_SESSION_ID": session["harness_session_id"] or "",
             "OPENCODE_MODEL": opencode_model,
-            # The repo's wiki, loaded as standing instructions (like CLAUDE.md).
-            "REPO_CONTEXT": repo_context(session["repo"]) if session["repo"] else "",
+            # What exists about the repo -- the wiki's summary and pages, saved
+            # notes -- loaded as standing instructions (like CLAUDE.md); the
+            # context tools read the rest.
+            "REPO_CONTEXT": agent_context.repo_context(session["repo"]) if session["repo"] else "",
             # Code a search of the repo found for this task; added to the first message.
             "RELEVANT_CODE": relevant_code(self.settings, session["repo"], prompt) if session["repo"] else "",
             # How far this turn may run: steps, continuations, timeout, token budget.
@@ -830,6 +811,10 @@ class Scheduler:
                 self._ci_passed(session, report)
 
     def _ci_failed(self, session: dict[str, Any], report: dict[str, Any]) -> None:
+        if not session.get("ci_failed_sha"):
+            # The first failing commit: when CI passes again, the change since
+            # then is the fix, and becomes a CI note (_ci_passed).
+            store.update_session(session["id"], ci_failed_sha=report["sha"])
         names = ", ".join(f"`{c['name']}`" for c in report["failed"])
         attempts = session.get("ci_fix_attempts") or 0
         if attempts >= CI_FIX_ATTEMPTS:
@@ -858,7 +843,9 @@ class Scheduler:
     def _ci_passed(self, session: dict[str, Any], report: dict[str, Any]) -> None:
         if session.get("ci_fix_attempts"):
             store.append_log(session["id"], "system", f"CI passes on PR #{session['pr_number']} now")
-        store.update_session(session["id"], ci_fix_attempts=0)
+        store.update_session(session["id"], ci_fix_attempts=0, ci_failed_sha=None)
+        if session.get("ci_failed_sha") and report.get("sha"):
+            self._harvest_in_background(self._harvest_ci_fix, session, session["ci_failed_sha"], report["sha"])
         if session.get("spec_phase") == "built" and report["draft"]:
             try:
                 self.gh.mark_ready(session["repo"], session["pr_number"])
@@ -870,6 +857,88 @@ class Scheduler:
                                  report["state"], "CI has no checks")
                              + f"; PR #{session['pr_number']} is marked ready for review")
             self._spec_pr_update(session, "built_unchecked" if report["state"] == "unchecked" else "built")
+
+    # -- agent context: notes from sessions, wiki freshness (app/agent_context.py)
+
+    def _due(self, key: str) -> bool:
+        now = time.time()
+        if now - self._context_checked.get(key, 0) < CONTEXT_CHECK_SECONDS:
+            return False
+        self._context_checked[key] = now
+        return True
+
+    def _harvest_in_background(self, work: Callable[..., None], *args: Any) -> None:
+        """Runs a note harvest on its own thread, one at a time: each is a
+        model call that can take minutes."""
+        def run() -> None:
+            with self._harvest_lock:
+                try:
+                    work(*args)
+                except Exception:
+                    logger.exception("couldn't write agent context notes")
+        threading.Thread(target=run, name="factory-context-notes", daemon=True).start()
+
+    def _harvest_reviews(self) -> None:
+        """Reads reviewers' comments on each session's PR once it's merged or
+        closed, for review notes."""
+        for session in store.list_sessions():
+            if (not session["pr_number"] or not session["repo"] or session.get("dry_run")
+                    or session.get("context_harvested_at") or session["status"] in BUSY_OR_QUEUED
+                    or not self._due(f"pr:{session['id']}")):
+                continue
+            try:
+                state, merged = self.gh.pr_state(session["repo"], session["pr_number"])
+            except Exception:
+                logger.exception("couldn't read PR state for session %s", session["id"])
+                continue
+            if state == "closed":
+                store.update_session(session["id"], context_harvested_at=time.time())
+                self._harvest_in_background(self._harvest_review, session, merged)
+
+    def _harvest_review(self, session: dict[str, Any], merged: bool) -> None:
+        comments = self.gh.new_pr_comments(session["repo"], session["pr_number"], 0, since=0.0)
+        # Only people who can write to the repo set its rules.
+        comments = [c for c in comments if self.gh.can_write(session["repo"], c["author"])]
+        made = agent_context.harvest_review_notes(self.settings, session, comments, merged)
+        if made:
+            store.append_log(session["id"], "system",
+                             f"{made} note{'s' if made != 1 else ''} from the review of PR #{session['pr_number']} "
+                             "are waiting in the repo's Context tab")
+
+    def _harvest_ci_fix(self, session: dict[str, Any], failed_sha: str, fixed_sha: str) -> None:
+        failure = next((l["content"] for l in reversed(store.list_logs(session["id"]))
+                        if l["kind"] == "ci_failure"), "")
+        if not failure:
+            return
+        diff = github_tools.compare_diff(session["repo"], failed_sha, fixed_sha)
+        if agent_context.harvest_ci_note(self.settings, session, failure, diff, failed_sha, fixed_sha):
+            store.append_log(session["id"], "system", "A note on this CI fix is waiting in the repo's Context tab")
+
+    def _refresh_wikis(self) -> None:
+        """Marks a wiki out of date when a PR merges into its repo's default
+        branch, and rebuilds an out-of-date wiki once its last build is older
+        than the Wiki refresh setting."""
+        days = agent_settings.current()["wiki_refresh_days"]
+        for index in store.list_wiki_indexes():
+            repo = index["repo"]
+            if index["status"] == "indexing" or not index.get("commit_sha"):
+                continue
+            if self._due(f"merges:{repo}"):
+                since = index.get("merges_checked_at") or index.get("last_indexed_at") or index["created_at"]
+                try:
+                    merged = self.gh.merged_prs_since(repo, since)
+                except Exception:
+                    logger.exception("couldn't list merged PRs for %s", repo)
+                    merged = []
+                if merged:
+                    first = merged[-1]
+                    store.mark_wiki_dirty(repo, f"PR #{first['number']} was merged", first["at"])
+                store.upsert_wiki_index(repo, merges_checked_at=time.time())
+                index = store.get_wiki_index(repo) or index
+            if (index.get("dirty_since") and self.wiki is not None
+                    and time.time() - (index.get("last_indexed_at") or 0) >= days * 86400):
+                if self.wiki.start(repo):
+                    logger.info("rebuilding the out-of-date wiki for %s (%s)", repo, index.get("dirty_reason"))
 
     # -- spec-first sessions (app/specs.py) -----------------------------
 

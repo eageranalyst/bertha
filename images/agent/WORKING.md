@@ -27,8 +27,10 @@ directly instead.
 - Use the glob, grep and read tools to find things. Use bash only for what
   they can't do, and keep each command simple: one command, no `$(...)`,
   no long pipelines.
-- If the repository context below describes the architecture or
-  conventions, follow it.
+- The repository context below only lists what Bertha knows about this
+  repo: a wiki and notes saved from earlier reviews and CI fixes. Before
+  changing code, read the wiki pages and notes that touch your task with the
+  `bertha` tools, and follow the conventions and notes they describe.
 
 ## GitHub
 

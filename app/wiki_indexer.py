@@ -16,7 +16,7 @@ import json
 import logging
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from docker.errors import NotFound
@@ -50,6 +50,9 @@ class _BuildState:
     done: bool = False
     index_ready: bool = False
     index_saved: bool = False
+    # When Bertha started following the build: merges noticed before this are
+    # in what it read, later ones still leave the wiki out of date.
+    started: float = field(default_factory=time.time)
 
 
 class WikiIndexer:
@@ -188,6 +191,7 @@ class WikiIndexer:
 
     def _finish(self, repo: str, state: _BuildState, exit_code: int) -> None:
         if state.done and not state.error and exit_code == 0 and state.meta:
+            store.clear_wiki_dirty(repo, before=state.started)
             if state.meta["unchanged"]:
                 logger.info("wiki for %s already current at %s", repo, state.meta["commit_sha"][:7])
                 store.upsert_wiki_index(repo, status="ready", progress=None, error=None)

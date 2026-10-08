@@ -126,6 +126,15 @@ SETTINGS: tuple[Setting, ...] = (
         maximum=32,
         env=None,
     ),
+    Setting(
+        key="wiki_refresh_days",
+        label="Wiki refresh (days)",
+        help="A repo's wiki is out of date once a pull request merges into its default branch. Bertha rebuilds an out-of-date wiki when its last build is at least this many days old.",
+        default=7,
+        minimum=1,
+        maximum=90,
+        env=None,
+    ),
 )
 
 # Processes per container: enough for builds and test runners, but stops a fork bomb.

@@ -165,7 +165,7 @@ ignored. Comments wait while a turn runs, and are picked up after it.
 
 ## Repos and wiki
 
-The **Repos** tab lists every registered repo. Each one has two
+The **Repos** tab lists every registered repo. Each one has these
 subtabs:
 
 - **Metadata** -- what GitHub reports about the repo (visibility,
@@ -180,9 +180,17 @@ subtabs:
   files). Pages link to each other, link repo files to their GitHub
   blob at the scanned commit, and include Mermaid diagrams where the
   model judged one useful.
+- **Skills** -- which skills from the library agents get in this repo.
+- **Context** -- lessons for agents drawn from the repo's reviews and CI
+  fixes, for you to review (see Agent context).
 
-Indexing is on demand: nothing is indexed until you press **Index
+Indexing starts on demand: nothing is indexed until you press **Index
 wiki** (or **Re-index** / **Rebuild** on a repo that already has one).
+After that, Bertha keeps it fresh: every 10 minutes it checks each wiki's
+repo for pull requests merged into the default branch, and a merge marks the
+wiki out of date (shown on the Wiki tab, and to agents). An out-of-date wiki
+is rebuilt once its last build is older than **Wiki refresh (days)** in
+Settings (7 by default).
 Each build runs in its own container from `images/wiki/` (the same
 approach code sessions use), so the repo is cloned and scanned in
 isolation. The container shallow-clones the repo, runs the
@@ -207,6 +215,26 @@ repo: status, progress, commit, the scan, and when the wiki was
 created, last built and last changed) and `wiki_pages` (one row per
 page). A build that's interrupted by an API restart is marked failed
 on the next start.
+
+## Agent context
+
+Each repo has a **Context** tab (Repos → the repo → Context) that collects
+lessons for agents from what happens in its sessions (`app/agent_context.py`):
+
+- **Review notes.** When a Bertha pull request is merged or closed, the
+  local model reads its comments from people with write access and keeps the
+  rules that apply beyond that change ("go through the repository functions,
+  don't hand-roll SQL"), dropping typos, questions and thanks.
+- **CI notes.** When CI passes after failing on a session's pull request,
+  the model writes up the cause and the fix from the failure and the change
+  between the two commits, or skips it if it looks flaky or one-off.
+
+Each note keeps where it came from (the session, the PR, links to the
+comments, the CI jobs and the fix's diff) and the words it was drawn from.
+New notes wait in **To review**: save one to memory, reject it, edit it, or
+vote it up or down. Only saved notes reach agents: their titles in each
+turn's repo context, highest-voted first, and the full note through the
+`context_note` tool, which counts how often agents read each one.
 
 ## Schedules
 
@@ -285,10 +313,15 @@ global git and `gh` config outside the workspace, and rewrites the repo's
 
 What the agent gets, besides the task:
 
-- **Working practices** (`images/agent/WORKING.md`) and **repo context**: the
-  wiki's conventions, overview, architecture, testing and getting-started
-  pages, plus a **repo map** of each source file and its top-level
-  definitions.
+- **Working practices** (`images/agent/WORKING.md`) and **repo context**
+  (`app/agent_context.py`). The context only says what exists, so it stays
+  small however big the wiki gets: the wiki's commit and freshness, a short
+  summary, one line per page, and the titles of saved notes (see Agent
+  context below). The agent reads the rest with Bertha's context tools
+  (`app/context_tools.py`, an MCP server called `bertha` beside the GitHub
+  tools, with the same per-turn key): `wiki_pages`, `wiki_page`,
+  `wiki_search`, `repo_map`, `search_code`, `context_notes` and
+  `context_note`. All are read-only and limited to the session's repo.
 - **Likely relevant code**: the wiki build also indexes the repo's code
   (`app/code_index.py`), embedding chunks with the model server's embedding
   model (`FACTORY_EMBEDDING_MODEL`, default `nomic-embed-text`). Each turn,
@@ -431,6 +464,8 @@ app/
   egress_proxy.py   the agent network's only way out
   github_client.py  polling: assigned issues, new PR comments; repo metadata
   github_tools.py   MCP server giving agents scoped GitHub access without a token
+  context_tools.py  MCP server giving agents the wiki, code map, code search and saved notes
+  agent_context.py  repo context for a turn; notes drawn from reviews and CI fixes
   specs.py          spec-first sessions
   models.py         model registry: discovery, tiers, choosing a model
   routing.py        per-turn model routing
@@ -451,8 +486,8 @@ evals/              agent evals (run.py, tasks.example.json)
 docs/               README assets (the logo)
 web/                Next.js/TypeScript UI, its own process (npm run dev)
   app/icon.svg      favicon: a simplified Bertha logo
-  app/(console)/    one route per tab: sessions, repos, schedules, skills,
-                    models, settings
+  app/(console)/    one route per tab: sessions, repos (metadata, wiki,
+                    skills, context), schedules, skills, models, settings
   components/       UI components; images/ holds the SVG mascots and logo
   lib/              api.ts (typed fetch client), types.ts, format.ts, ...
 ```

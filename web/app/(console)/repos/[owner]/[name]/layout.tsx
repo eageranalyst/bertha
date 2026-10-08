@@ -12,6 +12,7 @@ const SUBTABS = [
   { segment: "metadata", label: "Metadata" },
   { segment: "wiki", label: "Wiki" },
   { segment: "skills", label: "Skills" },
+  { segment: "context", label: "Context" },
 ];
 
 /** Looks the repo up by its name, then shares it with the subtab pages. */

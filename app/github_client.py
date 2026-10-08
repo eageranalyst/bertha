@@ -107,17 +107,17 @@ class GitHubClient:
         for c in pr.get_issue_comments():
             if wanted(c.id, c.created_at, c.user.login, c.body):
                 comments.append({"id": c.id, "author": c.user.login, "body": c.body,
-                                 "at": c.created_at.timestamp()})
+                                 "at": c.created_at.timestamp(), "url": c.html_url})
         for c in pr.get_review_comments():
             if wanted(c.id, c.created_at, c.user.login, c.body):
                 comments.append({"id": c.id, "author": c.user.login, "body": c.body,
                                  "at": c.created_at.timestamp(), "path": c.path,
-                                 "line": c.line or c.original_line})
+                                 "line": c.line or c.original_line, "url": c.html_url})
         if since is not None:  # review ids are a separate sequence, so only by time
             for r in pr.get_reviews():
                 if r.submitted_at and wanted(r.id, r.submitted_at, r.user.login, r.body):
                     comments.append({"id": r.id, "author": r.user.login, "body": r.body,
-                                     "at": r.submitted_at.timestamp()})
+                                     "at": r.submitted_at.timestamp(), "url": r.html_url})
         comments.sort(key=lambda c: c["at"])
         return comments
 
@@ -175,6 +175,18 @@ class GitHubClient:
             return self._gh.get_repo(repo_full_name).get_contents(path, ref=ref).decoded_content.decode()
         except Exception:
             return None
+
+    def merged_prs_since(self, repo_full_name: str, since: float) -> list[dict[str, Any]]:
+        """Pull requests merged into the default branch after `since` (epoch
+        seconds), newest first."""
+        repo = self._gh.get_repo(repo_full_name)
+        merged = []
+        for pr in repo.get_pulls(state="closed", sort="updated", direction="desc", base=repo.default_branch):
+            if pr.updated_at.timestamp() <= since:
+                break  # sorted by update, and a merge updates the PR
+            if pr.merged_at and pr.merged_at.timestamp() > since:
+                merged.append({"number": pr.number, "title": pr.title, "at": pr.merged_at.timestamp()})
+        return sorted(merged, key=lambda p: -p["at"])
 
     def pr_state(self, repo_full_name: str, pr_number: int) -> tuple[str, bool]:
         repo = self._gh.get_repo(repo_full_name)

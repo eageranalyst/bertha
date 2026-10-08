@@ -142,6 +142,12 @@ export function RepoWiki({ repoId, repoName, slug }: { repoId: number; repoName:
           <span>Created {fmtTime(index.created_at)}</span>
           <span>Last indexed {fmtTime(index.last_indexed_at)}</span>
           <span>Updated {fmtTime(index.updated_at)}</span>
+          {index.dirty_since != null && (
+            <span className="wiki-dirty">
+              Out of date: {index.dirty_reason ?? "the code changed"} {fmtTime(index.dirty_since)}. It&apos;s rebuilt
+              automatically (see Wiki refresh in Settings).
+            </span>
+          )}
         </div>
       )}
 

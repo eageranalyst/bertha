@@ -9,6 +9,7 @@ import type {
   RepoMetadata,
   RepoSkill,
   Repo,
+  ContextNote,
   SecurityStatus,
   Session,
   SessionSpec,
@@ -71,6 +72,12 @@ export const api = {
   /** Server-sent events for one session: a snapshot, then each change. */
   sessionEventsUrl: (id: number) => `${API_ORIGIN}/api/sessions/${id}/events`,
   listRepos: () => request<Repo[]>("/api/repos"),
+  listContextNotes: (repo?: string) =>
+    request<ContextNote[]>(`/api/context-notes${repo ? `?repo=${encodeURIComponent(repo)}` : ""}`),
+  updateContextNote: (id: number, patch: Partial<Pick<ContextNote, "title" | "body" | "status">>) =>
+    request<ContextNote>(`/api/context-notes/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  voteContextNote: (id: number, delta: 1 | -1) =>
+    request<ContextNote>(`/api/context-notes/${id}/vote`, { method: "POST", body: JSON.stringify({ delta }) }),
   getRepoMetadata: (repoId: number) => request<RepoMetadata>(`/api/repos/${repoId}/metadata`),
   getWiki: (repoId: number) => request<WikiResponse>(`/api/repos/${repoId}/wiki`),
   getWikiPage: (repoId: number, slug: string) =>
