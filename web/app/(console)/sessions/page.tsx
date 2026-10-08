@@ -1,4 +1,4 @@
-import { FactoryMascot } from "@/components/FactoryMascot";
+import { FactoryMascot } from "@/components/images/FactoryMascot";
 
 export default function SessionsIndex() {
   return (

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { FactoryLogo } from "@/components/FactoryMascot";
+import { FactoryLogo } from "@/components/images/FactoryMascot";
 
 const TABS = [
   { href: "/sessions", label: "Sessions" },
