@@ -9,6 +9,7 @@ dispatches them to its threadpool instead of the asyncio loop, which
 keeps this simple: nothing here needs to be async.
 """
 
+import json
 import logging
 import os
 import re
@@ -17,8 +18,9 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 import asyncio
@@ -214,6 +216,61 @@ def api_get_session(session_id: int):
 def api_get_logs(session_id: int):
     _get_or_404(session_id)
     return store.list_logs(session_id)
+
+
+# How often a session's event stream checks for changes, and how far back it
+# looks each time. Two threads can commit log writes out of timestamp order,
+# so each check also re-reads the last couple of seconds and skips anything
+# already sent.
+EVENTS_CHECK_SECONDS = 0.2
+EVENTS_LOOKBACK_SECONDS = 2.0
+EVENTS_PING_SECONDS = 15.0
+
+
+def _sse(event: str, data: Any) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+async def _session_events(session_id: int, request: Request):
+    """A snapshot of the session and its logs, then each change as it lands:
+    `session` when the row changes, `logs` with every entry added or changed
+    (an ask reply arrives as the same entry, growing)."""
+    session = await asyncio.to_thread(store.get_session, session_id)
+    logs = await asyncio.to_thread(store.list_logs, session_id)
+    yield _sse("snapshot", {"session": session, "logs": logs})
+    session_seen = session["updated_at"] if session else None
+    sent = {log["id"]: log["updated_at"] for log in logs}
+    since = max((log["updated_at"] or 0 for log in logs), default=0.0)
+    pinged = time.monotonic()
+    while not await request.is_disconnected():
+        await asyncio.sleep(EVENTS_CHECK_SECONDS)
+        session = await asyncio.to_thread(store.get_session, session_id)
+        if session is None:
+            yield _sse("gone", {})
+            return
+        if session["updated_at"] != session_seen:
+            session_seen = session["updated_at"]
+            yield _sse("session", session)
+        changed = await asyncio.to_thread(store.logs_changed_since, session_id, since - EVENTS_LOOKBACK_SECONDS)
+        fresh = [log for log in changed if sent.get(log["id"]) != log["updated_at"]]
+        for log in fresh:
+            sent[log["id"]] = log["updated_at"]
+            since = max(since, log["updated_at"])
+        if fresh:
+            yield _sse("logs", fresh)
+        if time.monotonic() - pinged >= EVENTS_PING_SECONDS:
+            pinged = time.monotonic()
+            yield ": ping\n\n"
+
+
+@app.get("/api/sessions/{session_id}/events")
+def api_session_events(session_id: int, request: Request):
+    _get_or_404(session_id)
+    return StreamingResponse(
+        _session_events(session_id, request),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @app.post("/api/sessions/{session_id}/message")

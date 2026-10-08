@@ -40,6 +40,7 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 import httpx
@@ -426,25 +427,38 @@ class Scheduler:
     def _run_ask_request(
         self, session_id: int, client: httpx.Client, messages: list[dict[str, str]], model_id: str
     ) -> None:
+        # Streamed: the reply's log entry is created at its first token and
+        # rewritten as it grows, so the UI shows it being written.
+        log_id: int | None = None
+        text = ""
+        saved_at = 0.0
         try:
-            resp = client.post(
+            with client.stream(
+                "POST",
                 f"{self.settings.local_model_host_base_url}/chat/completions",
-                json={
-                    "model": model_id,
-                    "messages": messages,
-                    "stream": False,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            text = data["choices"][0]["message"]["content"]
-            store.append_log(session_id, "ask_response", text)
+                json={"model": model_id, "messages": messages, "stream": True},
+            ) as resp:
+                resp.raise_for_status()
+                for delta in _stream_deltas(resp.iter_lines()):
+                    text += delta
+                    if log_id is None:
+                        log_id = store.append_log(session_id, "ask_response", text)
+                        saved_at = time.monotonic()
+                    elif time.monotonic() - saved_at >= ASK_SAVE_INTERVAL:
+                        store.set_log_content(log_id, text)
+                        saved_at = time.monotonic()
+            if log_id is None:
+                store.append_log(session_id, "ask_response", text)
+            else:
+                store.set_log_content(log_id, text)
             self._settle(session_id, "idle", "replied", last_activity_at=time.time())
         except Exception as exc:
             # Either a real failure, or stop_turn() closed the client out
             # from under us -- can't cleanly tell which, so the log line
             # carries the detail and the status just reflects "not running
             # anymore" rather than guessing which one happened.
+            if log_id is not None:
+                store.set_log_content(log_id, text)  # keep what arrived before it ended
             current = store.get_session(session_id)
             if current and current["status"] == "running":
                 store.append_log(session_id, "system", f"Ask turn ended: {exc}")
@@ -1013,6 +1027,28 @@ class Scheduler:
         store.update_session(session["id"], spec_phase="abandoned", status="closed", pending_message=None,
                              attention=None, harness_session_id=None)
         store.append_log(session["id"], "system", f"Spec abandoned by {by}; the PR is closed")
+
+
+# How often a streaming ask reply is written to its log entry.
+ASK_SAVE_INTERVAL = 0.15
+
+
+def _stream_deltas(lines: Iterable[str]) -> Iterator[str]:
+    """The text pieces of an OpenAI-style streamed chat completion: one
+    `data: {json}` server-sent event per chunk, ending with `data: [DONE]`."""
+    for line in lines:
+        if not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if payload == "[DONE]":
+            return
+        try:
+            choices = json.loads(payload).get("choices") or []
+        except ValueError:
+            continue
+        content = (choices[0].get("delta") or {}).get("content") if choices else None
+        if content:
+            yield content
 
 
 def _final_message(logs: str) -> str:

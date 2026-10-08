@@ -44,7 +44,9 @@ CREATE TABLE IF NOT EXISTS session_logs (
     session_id INTEGER NOT NULL REFERENCES sessions(id),
     kind TEXT NOT NULL,
     content TEXT NOT NULL,
-    created_at REAL NOT NULL
+    created_at REAL NOT NULL,
+    -- When the content last changed: an entry grows while a reply streams in.
+    updated_at REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_session_logs_session ON session_logs(session_id);
@@ -291,6 +293,10 @@ def _add_missing_session_columns(conn: sqlite3.Connection) -> None:
     if model_cols and "loaded" not in model_cols:
         # 1 loaded in the server now, 0 not loaded, null unknown.
         conn.execute("ALTER TABLE models ADD COLUMN loaded INTEGER")
+    log_cols = {row[1] for row in conn.execute("PRAGMA table_info(session_logs)").fetchall()}
+    if "updated_at" not in log_cols:
+        conn.execute("ALTER TABLE session_logs ADD COLUMN updated_at REAL")
+        conn.execute("UPDATE session_logs SET updated_at = created_at")
     page_cols = {row[1] for row in conn.execute("PRAGMA table_info(wiki_pages)").fetchall()}
     if "commit_sha" not in page_cols:
         conn.execute("ALTER TABLE wiki_pages ADD COLUMN commit_sha TEXT")
@@ -502,17 +508,20 @@ def clear_pending_message(session_id: int) -> None:
 
 
 def append_log(session_id: int, kind: str, content: str) -> int:
+    now = time.time()
     with _connect() as conn:
         cur = conn.execute(
-            "INSERT INTO session_logs (session_id, kind, content, created_at) VALUES (?, ?, ?, ?)",
-            (session_id, kind, content, time.time()),
+            "INSERT INTO session_logs (session_id, kind, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (session_id, kind, content, now, now),
         )
         return cur.lastrowid
 
 
 def set_log_content(log_id: int, content: str) -> None:
     with _connect() as conn:
-        conn.execute("UPDATE session_logs SET content = ? WHERE id = ?", (content, log_id))
+        conn.execute(
+            "UPDATE session_logs SET content = ?, updated_at = ? WHERE id = ?", (content, time.time(), log_id)
+        )
 
 
 def extend_log(log_id: int, content: str) -> None:
@@ -521,8 +530,8 @@ def extend_log(log_id: int, content: str) -> None:
     """
     with _connect() as conn:
         conn.execute(
-            "UPDATE session_logs SET content = content || ? WHERE id = ?",
-            (content, log_id),
+            "UPDATE session_logs SET content = content || ?, updated_at = ? WHERE id = ?",
+            (content, time.time(), log_id),
         )
 
 
@@ -536,6 +545,16 @@ def list_logs(session_id: int, limit: int = 500) -> list[dict[str, Any]]:
             (session_id, limit),
         ).fetchall()
         return [_row_to_dict(r) for r in reversed(rows)]
+
+
+def logs_changed_since(session_id: int, since: float) -> list[dict[str, Any]]:
+    """Entries added or changed after `since`, oldest first."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM session_logs WHERE session_id = ? AND updated_at > ? ORDER BY id",
+            (session_id, since),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
 
 
 def create_repo(full_name: str) -> None:

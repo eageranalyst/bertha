@@ -166,6 +166,8 @@ export interface LogEntry {
   kind: string;
   content: string;
   created_at: number;
+  /** When the content last changed; a streaming reply keeps growing. */
+  updated_at: number | null;
 }
 
 export type WikiStatus = "indexing" | "ready" | "failed";

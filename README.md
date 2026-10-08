@@ -126,8 +126,12 @@ still worth doing on top of it, not done yet:
 - **State** lives in `data/factory.db` (sqlite) — sessions, a log of
   everything that happened to each one, and the repo registry.
 - **UI** (`web/`) is a separate Next.js/TypeScript app, its own process
-  on its own port, polling the FastAPI backend's `/api/sessions` every
-  few seconds over CORS (`app/main.py` allows `localhost:3000`). Model
+  on its own port, talking to the FastAPI backend over CORS (`app/main.py`
+  allows `localhost:3000`). The session list polls `/api/sessions` every
+  few seconds; an open session follows `/api/sessions/{id}/events`, a
+  server-sent event stream of its status and log changes, so ask replies
+  appear as the model writes them and code-turn output as the scheduler
+  copies it from the container (every `FACTORY_FAST_POLL_INTERVAL_SECONDS`). Model
   responses and user messages render as Markdown with syntax
   highlighting (`react-markdown` + `rehype-highlight`); raw container
   logs (`agent_output`) render as plain preformatted text instead,
