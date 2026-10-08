@@ -50,6 +50,8 @@ def status_line(phase: str, path: str, repo: str, branch: str) -> str:
         "ci_failing": f"**Built from the approved spec, but CI is failing** ({link}), and Bertha's automatic fixes "
                       "didn't fix it. See the session.",
         "built": f"**Built from the approved spec** ({link}). CI passed; ready for review.",
+        "built_unchecked": f"**Built from the approved spec** ({link}). Ready for review; Bertha couldn't check "
+                           "CI (its token needs Actions: read).",
         "abandoned": "**Abandoned** before it was built.",
     }[phase]
 

@@ -793,6 +793,9 @@ class Scheduler:
                 if str(exc) == github_tools.CI_PERMISSION_HELP:
                     store.append_log(session["id"], "system", f"Not watching CI on PR #{session['pr_number']}: {exc}")
                     store.update_session(session["id"], ci_sha=None)
+                    if session.get("spec_phase") == "built":
+                        # Nothing to wait for: ready now, saying CI wasn't checked.
+                        self._ci_passed(session, {"state": "unchecked", "draft": True})
                 else:
                     logger.warning("couldn't read CI for session %s: %s", session["id"], exc)
                 continue
@@ -849,9 +852,10 @@ class Scheduler:
                 logger.exception("failed marking session %s's PR ready", session["id"])
                 return
             store.append_log(session["id"], "system",
-                             "CI " + ("passed" if report["state"] == "passed" else "has no checks")
+                             {"passed": "CI passed", "unchecked": "CI couldn't be checked"}.get(
+                                 report["state"], "CI has no checks")
                              + f"; PR #{session['pr_number']} is marked ready for review")
-            self._spec_pr_update(session, "built")
+            self._spec_pr_update(session, "built_unchecked" if report["state"] == "unchecked" else "built")
 
     # -- spec-first sessions (app/specs.py) -----------------------------
 

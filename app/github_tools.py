@@ -43,6 +43,7 @@ from fastapi.responses import JSONResponse, Response
 
 from . import store
 from .config import get_settings
+from .specs import _STATUS as STATUS_BLOCK
 from .specs import MARKER
 
 logger = logging.getLogger("factory.github_tools")
@@ -601,8 +602,20 @@ def _pr_write(client: httpx.Client, grant: dict, name: str, args: dict) -> Any:
     if name == "update_pr":
         change = {k: args[k] for k in ("title", "body") if k in args}
         wants_ready = args.get("draft") is False and pr["draft"]
-        if wants_ready and phase and phase != "built":
-            raise ToolError("a spec-first pull request is marked ready by Bertha once the approved spec is built")
+        if wants_ready and phase:
+            raise ToolError("a spec-first pull request is marked ready by Bertha, once the approved spec is built "
+                            "and CI passes; leave draft as it is")
+        if "body" in change:
+            # A new body keeps what Bertha relies on: its status line, and
+            # the line that closes the session's issue when the PR merges.
+            body = str(change["body"])
+            status = STATUS_BLOCK.search(pr.get("body") or "")
+            if status and status.group(0).strip() not in body:
+                body = status.group(0) + body
+            issue = session.get("issue_number")
+            if issue and not re.search(rf"\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\s+#{issue}\b", body, re.I):
+                body = body.rstrip() + f"\n\nCloses #{issue}"
+            change["body"] = body
         if not change and "draft" not in args:
             raise ToolError("nothing to change: pass title, body or draft")
         if not store.use_grant(grant["key"], "edit"):
