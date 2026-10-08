@@ -372,12 +372,12 @@ does most of the work, the way hosted agents do it:
   process cap.
 - **GitHub.** Use a fine-grained token limited to the registered repos
   (Contents and Pull requests: read and write), and protect each repo's
-  default branch so agent PRs need review. Settings → Security shows both.
+  default branch so agent PRs need review. Settings → General shows both.
 
 ## Models
 
 The model server can host several models. Bertha reads its model list
-(`/v1/models`, minus embedding models) into the **Models** tab. Each model
+(`/v1/models`, minus embedding models) into **Settings → Models**. Each model
 gets a tier from its parameter count: up to 8B is `light`, up to 14B
 `standard`, larger is `strong`. You can change the tier, add a description,
 or disable a model. Refresh after loading or removing models in the server.
@@ -480,7 +480,8 @@ docs/               this guide, and the logo
 web/                Next.js/TypeScript UI, its own process (npm run dev)
   app/icon.svg      favicon: a simplified Bertha logo
   app/(console)/    one route per tab: sessions, repos (metadata, wiki,
-                    skills, context), schedules, skills, models, settings
+                    skills, context), schedules, skills, settings (general,
+                    models)
   components/       UI components; images/ holds the SVG mascots and logo
   lib/              api.ts (typed fetch client), types.ts, format.ts, ...
 ```
