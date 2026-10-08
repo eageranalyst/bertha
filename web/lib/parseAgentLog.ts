@@ -30,6 +30,8 @@ export interface ToolEvent {
   diff?: string;
   /** The whole list after a todowrite call. */
   todos?: Todo[];
+  /** What the agent passed the tool: a path, pattern, command, issue number... */
+  input?: Record<string, unknown>;
 }
 
 export interface TextEvent {
@@ -67,6 +69,7 @@ function toToolEvent(obj: any): ToolEvent {
     error: state.error,
     diff,
     todos: part.tool === "todowrite" ? toTodos(state.input?.todos ?? state.metadata?.todos) : undefined,
+    input: state.input && typeof state.input === "object" ? state.input : undefined,
   };
 }
 
