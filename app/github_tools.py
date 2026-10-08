@@ -59,7 +59,7 @@ FAILED_CONCLUSIONS = ("failure", "timed_out", "startup_failure")
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "list_issues",
-        "description": "List issues in this repository (not pull requests), with what grooming triage needs: labels, body length, which house sections (why, proposed_changes, out_of_scope) the body has, how many file:line citations, the last comment (author, time, whether by this bot), when Bertha last changed it, and a suggested triage: thin (needs fleshing out), well_formed, or unchanged_since_groom.",
+        "description": "List issues in this repository (not pull requests), with what grooming triage needs: labels, body length, which house sections (why, proposed_changes, out_of_scope) the body is missing, how many file:line citations, who wrote the last comment ('bot' for this bot), and a suggested triage: thin (needs fleshing out), incomplete (has most of the house shape; add only the missing sections), well_formed, or unchanged_since_groom. One issue per line.",
         "inputSchema": {"type": "object", "properties": {
             "state": {"type": "string", "enum": ["open", "closed", "all"], "default": "open"},
             "labels": {"type": "string", "description": "Comma-separated label names to filter by"},
@@ -249,7 +249,10 @@ def call_tool(grant: dict, name: str, args: dict) -> Any:
             if args.get("since"):
                 params["since"] = args["since"]
             issues = _check(client.get(f"/repos/{repo}/issues", params=params))
-            return [_triage(client, repo, i) for i in issues if "pull_request" not in i]
+            # One compact line per issue: indented JSON runs past the agent's
+            # tool output limit (200 lines) at around a dozen issues.
+            rows = [_triage(client, repo, i) for i in issues if "pull_request" not in i]
+            return f"{len(rows)} issues, one per line:\n" + "\n".join(json.dumps(r, separators=(",", ":")) for r in rows)
 
         if name == "get_issue":
             issue = _issue(client, repo, int(number))
@@ -330,20 +333,26 @@ def _triage(client: httpx.Client, repo: str, issue: dict) -> dict:
     updated = datetime.fromisoformat(issue["updated_at"].replace("Z", "+00:00")).timestamp()
     unchanged = last_groomed is not None and updated <= last_groomed + OWN_EDIT_SLACK_SECONDS
 
+    missing = [name for name in SECTIONS if name not in sections]
     # Unchanged wins over thin: an issue still thin because last night could
     # only ask questions shouldn't get the same questions again tonight.
     if unchanged:
         triage = "unchanged_since_groom"
     elif len(body) < THIN_BODY_CHARS or len(sections) < 2:
         triage = "thin"
+    elif missing:
+        # Most of the shape is there: add what's missing around the existing
+        # text, rather than rewriting it as a thin issue would be.
+        triage = "incomplete"
     else:
         triage = "well_formed"
+    # Kept small: the whole list has to fit one tool result.
     return {
-        "number": issue["number"], "title": issue["title"], "state": issue["state"],
-        "labels": [l["name"] for l in issue["labels"]], "updated_at": issue["updated_at"],
-        "body_length": len(body), "sections": sections, "citations": len(CITATION.findall(body)),
-        "comments": issue.get("comments", 0), "last_comment": last_comment,
-        "last_groomed_at": datetime.fromtimestamp(last_groomed).isoformat() + "Z" if last_groomed else None,
+        "number": issue["number"], "title": issue["title"][:100],
+        "labels": [l["name"] for l in issue["labels"]],
+        "body_length": len(body), "missing_sections": missing, "citations": len(CITATION.findall(body)),
+        "comments": issue.get("comments", 0),
+        "last_comment_by": None if not last_comment else "bot" if last_comment["by_bot"] else last_comment["author"],
         "triage": triage,
     }
 
