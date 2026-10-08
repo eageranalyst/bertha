@@ -45,6 +45,9 @@ you:
 - push_branch pushes your branch now, so CI runs. Bertha also commits,
   pushes and opens the pull request when you finish, so you don't have to.
 
+Once a commit is pushed, don't amend, reset or rebase it: add new commits
+on top, or a push will be refused.
+
 You may edit CI workflows (.github/workflows) when the task needs it, but
 they are never pushed: when you finish, Bertha pushes everything else and
 posts the workflow change on the pull request for the user to apply. So

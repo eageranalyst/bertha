@@ -50,9 +50,11 @@ function describe(call: GitHubCall): string {
   return parts.join(" · ");
 }
 
-/** What the agent changed on GitHub in this session, with an undo. */
+/** What the agent changed on GitHub in this session, with an undo: a compact
+ * bar above the message box that opens upwards, like a changed-files list. */
 export function GitHubChanges({ session }: { session: Session }) {
   const [calls, setCalls] = useState<GitHubCall[]>([]);
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -62,6 +64,11 @@ export function GitHubChanges({ session }: { session: Session }) {
     } catch {
       // Keep the last list; the next tick retries.
     }
+  }, [session.id]);
+
+  useEffect(() => {
+    setOpen(false);
+    setMessage(null);
   }, [session.id]);
 
   useEffect(() => {
@@ -91,29 +98,37 @@ export function GitHubChanges({ session }: { session: Session }) {
     }
   }
 
+  const made = writes.filter((c) => c.ok).length;
+  const refused = writes.length - made;
+
   return (
-    <details className="github-changes" open>
-      <summary>
-        GitHub changes: {writes.filter((c) => c.ok).length} made
-        {writes.some((c) => !c.ok) ? `, ${writes.filter((c) => !c.ok).length} refused` : ""}
-      </summary>
-      <ul>
-        {writes.map((c) => (
-          <li key={c.id} className={c.ok ? (c.undone_at ? "undone" : "") : "refused"}>
-            {VERBS[c.tool]} {target(c)} {c.ok ? describe(c) : `(refused: ${c.error})`}
-            {c.undone_at ? " · undone" : ""}
-          </li>
-        ))}
-      </ul>
-      {undoable.length > 0 && (
-        <div className="github-changes-actions">
+    <div className={"github-changes" + (open ? " open" : "")}>
+      {open && (
+        <ul>
+          {writes.map((c) => (
+            <li key={c.id} className={c.ok ? (c.undone_at ? "undone" : "") : "refused"}>
+              {VERBS[c.tool]} {target(c)} {c.ok ? describe(c) : `(refused: ${c.error})`}
+              {c.undone_at ? " · undone" : ""}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="github-changes-bar">
+        <button type="button" className="github-changes-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
+          <span className="github-changes-chevron">▲</span>
+          <span className="github-changes-count">
+            {made} GitHub change{made === 1 ? "" : "s"}
+          </span>
+          {refused > 0 && <span className="github-changes-refused">{refused} refused</span>}
+        </button>
+        {message && <span className="skill-form-hint">{message}</span>}
+        {undoable.length > 0 && (
           <button type="button" className="btn-ghost" disabled={busy || running} onClick={undo}
                   title={running ? "Stop the session first" : undefined}>
-            Undo {undoable.length} change{undoable.length === 1 ? "" : "s"}
+            Undo {undoable.length === made ? "all" : undoable.length}
           </button>
-          {message && <span className="skill-form-hint">{message}</span>}
-        </div>
-      )}
-    </details>
+        )}
+      </div>
+    </div>
   );
 }

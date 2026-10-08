@@ -15,12 +15,46 @@ export function SessionList({
   sessions,
   selectedRef,
   draftActive,
+  collapsed,
+  onToggle,
 }: {
   sessions: Session[];
   selectedRef: string | null;
   draftActive: boolean;
+  collapsed: boolean;
+  onToggle: () => void;
 }) {
   const router = useRouter();
+
+  if (collapsed) {
+    // A narrow rail: one dot per session, coloured by what it's waiting on.
+    return (
+      <section id="session-list-pane" className="collapsed">
+        <div className="list-rail-header">
+          <button type="button" className="btn-ghost rail-toggle" onClick={onToggle}
+                  title="Show the session list" aria-label="Show the session list">
+            »
+          </button>
+          <Link href="/sessions/new" className="btn-primary rail-new" title="New session" aria-label="New session">
+            +
+          </Link>
+        </div>
+        <div className="session-rail">
+          {sessions.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className={"rail-item" + (s.ref === selectedRef ? " selected" : "")}
+              title={`${s.title || "(untitled)"} · ${s.status}${s.attention ? ` · ${ATTENTION_LABEL[s.attention]}` : ""}`}
+              onClick={() => router.push(`/sessions/${s.ref}`)}
+            >
+              <span className={`rail-dot ${s.attention ? `attention-${s.attention}` : `rail-status-${s.status}`}`} />
+            </button>
+          ))}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section id="session-list-pane">
@@ -28,6 +62,10 @@ export function SessionList({
         <Link href="/sessions/new" className="btn-primary btn-block">
           + New session
         </Link>
+        <button type="button" className="btn-ghost list-toggle" onClick={onToggle}
+                title="Collapse the session list" aria-label="Collapse the session list">
+          «
+        </button>
       </div>
       <div id="session-rows">
         {draftActive && (

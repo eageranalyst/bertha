@@ -741,6 +741,14 @@ class Scheduler:
             if line.startswith(("FACTORY_PUSH_FAILED=", "FACTORY_WORKFLOW_HELD=", "FACTORY_WORKFLOW_PATCH=")):
                 key, value = line.split("=", 1)
                 values[key] = value.strip()
+        if "FACTORY_BRANCH_MERGED=1" in logs:
+            store.append_log(session["id"], "system",
+                             "The branch on GitHub had changed alongside this session's work, so Bertha merged "
+                             "the two (this session's side wins where they overlap)")
+        if "FACTORY_BRANCH_DIVERGED=1" in logs:
+            store.append_log(session["id"], "system",
+                             "The branch on GitHub has changes that can't be merged with this session's work "
+                             "automatically; resolve them on the branch, then send a message")
         if "FACTORY_PUSH_FAILED" in values:
             reason = values["FACTORY_PUSH_FAILED"] or "GitHub refused it"
             store.append_log(session["id"], "system",

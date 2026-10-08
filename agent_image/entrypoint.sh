@@ -150,8 +150,15 @@ if [ -n "$REPO" ]; then
     reset_repo_git_config /data/repo
     cd repo
     if git ls-remote --exit-code --heads origin "$BRANCH_NAME" >/dev/null 2>&1; then
-        git fetch origin "$BRANCH_NAME"
-        git checkout -B "$BRANCH_NAME" "origin/$BRANCH_NAME"
+        git fetch -q origin "$BRANCH_NAME"
+        if git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
+            # Keep work an earlier turn committed but couldn't push, and take
+            # in anything pushed to the branch since (see git_safe.sh).
+            git checkout -q "$BRANCH_NAME"
+            sync_with_remote "$BRANCH_NAME" || true
+        else
+            git checkout -q -b "$BRANCH_NAME" "origin/$BRANCH_NAME"
+        fi
     elif git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
         # Left over from an earlier turn that never reached the remote: keep
         # its commits rather than failing to create the branch again.
@@ -404,6 +411,12 @@ PY
     # squashed into one without them, and the change itself is handed to
     # Bertha, which posts it on the pull request for a person to apply.
     if [ -z "${NO_PUSH:-}" ]; then
+        # GitHub's copy as it is now: a mid-turn push, or someone else, may
+        # have moved it. Squashing must never touch what's already there.
+        if git ls-remote --exit-code --heads origin "$BRANCH_NAME" >/dev/null 2>&1; then
+            git fetch -q origin "$BRANCH_NAME"
+            sync_with_remote "$BRANCH_NAME" || true
+        fi
         hold_back_workflows "$BRANCH_NAME"
     fi
 

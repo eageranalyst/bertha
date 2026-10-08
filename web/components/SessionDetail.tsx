@@ -177,7 +177,6 @@ export function SessionDetail({
       </div>
 
       {session.spec_phase && <SpecPanel session={session} onApprove={onApproveSpec} onAbandon={onAbandonSpec} />}
-      {session.repo && <GitHubChanges session={session} />}
 
       <div id="detail-logs" ref={logsRef}>
         {logs.map((l) => {
@@ -208,6 +207,8 @@ export function SessionDetail({
           <WorkingIndicator since={workingSince} queued={session.status === "queued"} />
         )}
       </div>
+
+      {session.repo && <GitHubChanges session={session} />}
 
       <form
         id="message-form"

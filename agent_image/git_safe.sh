@@ -24,6 +24,32 @@ write_global_git_config() {
     git config --global core.hooksPath /dev/null
 }
 
+# Brings the checked-out branch in line with GitHub's copy (origin/<branch>,
+# fetched already) without losing work on either side:
+# - GitHub's copy already in the branch (equal, or the branch is ahead): nothing;
+# - the branch behind: fast-forward;
+# - diverged (someone pushed to the branch, or the agent rewrote commits it had
+#   pushed): merge GitHub's copy in, taking this side where they conflict.
+# Returns 1, with the merge undone, when even that fails.
+sync_with_remote() {
+    local remote="origin/$1"
+    git rev-parse -q --verify "refs/remotes/$remote" >/dev/null || return 0
+    if git merge-base --is-ancestor "$remote" HEAD; then
+        return 0
+    fi
+    if git merge-base --is-ancestor HEAD "$remote"; then
+        git merge -q --ff-only "$remote"
+        return 0
+    fi
+    if git merge -q --no-edit -X ours -m "Merge GitHub's $1 into this turn's work" "$remote" >/dev/null 2>&1; then
+        echo "FACTORY_BRANCH_MERGED=1"
+        return 0
+    fi
+    git merge --abort 2>/dev/null || true
+    echo "FACTORY_BRANCH_DIVERGED=1"
+    return 1
+}
+
 # Takes CI workflow changes out of the commits not yet on GitHub, in the
 # current directory's repo: those commits are squashed into one without them,
 # the files go back to how GitHub has them, and the change is printed as

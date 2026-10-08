@@ -51,7 +51,15 @@ git remote add origin "https://github.com/${REPO}.git"
 git fetch -q "$BUNDLE" "HEAD:refs/heads/out"
 rm -f "$BUNDLE"
 if ! git push -q origin "refs/heads/out:refs/heads/$BRANCH_NAME" 2>/tmp/push_error.txt; then
-    echo "PUSH_ERROR=$(tail -c 400 /tmp/push_error.txt | tr '\n' ' ')"
+    if grep -qE 'non-fast-forward|fetch first|remote contains work' /tmp/push_error.txt; then
+        echo "PUSH_ERROR=the branch on GitHub has commits yours doesn't, usually because a commit that was already pushed was amended, reset or rebased. Don't rewrite pushed commits: add new commits on top instead. Bertha reconciles the branch with GitHub's copy when the turn ends."
+    else
+        echo "PUSH_ERROR=$(tail -c 400 /tmp/push_error.txt | tr '\n' ' ')"
+    fi
     exit 1
 fi
-echo "PUSHED_SHA=$(git rev-parse refs/heads/out)"
+SHA=$(git rev-parse refs/heads/out)
+# The agent's checkout now knows what GitHub has, so the end of the turn
+# builds on it rather than on a stale copy.
+"${AS_AGENT[@]}" git -C /data/repo update-ref "refs/remotes/origin/$BRANCH_NAME" "$SHA" 2>/dev/null || true
+echo "PUSHED_SHA=$SHA"
