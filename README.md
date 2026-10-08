@@ -405,7 +405,7 @@ Docker must be running locally; the first start builds the agent image
 from `images/agent/` and the wiki build image from `images/wiki/`.
 
 ```bash
-uvicorn app.main:app --reload --port 8787
+uvicorn app.main:app --reload --reload-dir app --port 8787
 ```
 
 In a second terminal, the UI:

@@ -224,25 +224,38 @@ def api_get_logs(session_id: int):
 # already sent.
 EVENTS_CHECK_SECONDS = 0.2
 EVENTS_LOOKBACK_SECONDS = 2.0
-EVENTS_PING_SECONDS = 15.0
+# Each stream ends after this long and the browser reconnects, picking up
+# where it left off. A stream that never ended would hold up the server's
+# shutdown (and every `--reload`) for as long as the page stayed open.
+EVENTS_MAX_SECONDS = 25.0
+EVENTS_RETRY_MS = 500
 
 
-def _sse(event: str, data: Any) -> str:
-    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+def _sse(event: str, data: Any, event_id: float | None = None) -> str:
+    head = f"id: {event_id!r}\n" if event_id is not None else ""
+    return f"{head}event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-async def _session_events(session_id: int, request: Request):
+async def _session_events(session_id: int, request: Request, resume_from: float | None):
     """A snapshot of the session and its logs, then each change as it lands:
     `session` when the row changes, `logs` with every entry added or changed
-    (an ask reply arrives as the same entry, growing)."""
+    (an ask reply arrives as the same entry, growing). Each event's id is how
+    far the logs have been sent; a reconnect passes it back (Last-Event-ID)
+    and gets the session and what changed since, instead of a new snapshot."""
+    yield f"retry: {EVENTS_RETRY_MS}\n\n"
     session = await asyncio.to_thread(store.get_session, session_id)
-    logs = await asyncio.to_thread(store.list_logs, session_id)
-    yield _sse("snapshot", {"session": session, "logs": logs})
+    if resume_from is None:
+        logs = await asyncio.to_thread(store.list_logs, session_id)
+        sent = {log["id"]: log["updated_at"] for log in logs}
+        since = max((log["updated_at"] or 0 for log in logs), default=0.0)
+        yield _sse("snapshot", {"session": session, "logs": logs}, since)
+    else:
+        sent, since = {}, resume_from
+        if session:
+            yield _sse("session", session, since)
     session_seen = session["updated_at"] if session else None
-    sent = {log["id"]: log["updated_at"] for log in logs}
-    since = max((log["updated_at"] or 0 for log in logs), default=0.0)
-    pinged = time.monotonic()
-    while not await request.is_disconnected():
+    ends_at = time.monotonic() + EVENTS_MAX_SECONDS
+    while time.monotonic() < ends_at and not await request.is_disconnected():
         await asyncio.sleep(EVENTS_CHECK_SECONDS)
         session = await asyncio.to_thread(store.get_session, session_id)
         if session is None:
@@ -250,24 +263,25 @@ async def _session_events(session_id: int, request: Request):
             return
         if session["updated_at"] != session_seen:
             session_seen = session["updated_at"]
-            yield _sse("session", session)
+            yield _sse("session", session, since)
         changed = await asyncio.to_thread(store.logs_changed_since, session_id, since - EVENTS_LOOKBACK_SECONDS)
         fresh = [log for log in changed if sent.get(log["id"]) != log["updated_at"]]
         for log in fresh:
             sent[log["id"]] = log["updated_at"]
             since = max(since, log["updated_at"])
         if fresh:
-            yield _sse("logs", fresh)
-        if time.monotonic() - pinged >= EVENTS_PING_SECONDS:
-            pinged = time.monotonic()
-            yield ": ping\n\n"
+            yield _sse("logs", fresh, since)
 
 
 @app.get("/api/sessions/{session_id}/events")
 def api_session_events(session_id: int, request: Request):
     _get_or_404(session_id)
+    try:
+        resume_from = float(request.headers["last-event-id"])
+    except (KeyError, ValueError):
+        resume_from = None
     return StreamingResponse(
-        _session_events(session_id, request),
+        _session_events(session_id, request, resume_from),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache"},
     )
