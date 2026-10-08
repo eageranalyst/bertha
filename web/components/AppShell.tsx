@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { FactoryLogo } from "@/components/images/FactoryMascot";
+import { ThemeSwitch } from "@/components/ThemeSwitch";
 
 const TABS = [
   { href: "/sessions", label: "Sessions" },
@@ -29,21 +30,24 @@ export function AppShell({ children }: { children: ReactNode }) {
             <p className="subtitle">She builds...</p>
           </div>
         </div>
-        <nav className="top-tabs" aria-label="Sections">
-          {TABS.map((t) => {
-            const active = pathname === t.href || pathname.startsWith(`${t.href}/`);
-            return (
-              <Link
-                key={t.href}
-                href={t.href}
-                className={"top-tab" + (active ? " active" : "")}
-                aria-current={active ? "page" : undefined}
-              >
-                {t.label}
-              </Link>
-            );
-          })}
-        </nav>
+        <div className="header-end">
+          <nav className="top-tabs" aria-label="Sections">
+            {TABS.map((t) => {
+              const active = pathname === t.href || pathname.startsWith(`${t.href}/`);
+              return (
+                <Link
+                  key={t.href}
+                  href={t.href}
+                  className={"top-tab" + (active ? " active" : "")}
+                  aria-current={active ? "page" : undefined}
+                >
+                  {t.label}
+                </Link>
+              );
+            })}
+          </nav>
+          <ThemeSwitch />
+        </div>
       </header>
       {children}
     </div>

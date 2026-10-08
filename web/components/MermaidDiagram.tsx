@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { repairMermaid } from "@/lib/mermaid";
+import { useTheme } from "@/lib/theme";
 
 /**
  * Renders one Mermaid diagram as inline SVG. Mermaid is loaded on first use so
@@ -14,6 +15,8 @@ export function MermaidDiagram({ chart }: { chart: string }) {
   const [error, setError] = useState<string | null>(null);
   // useId gives ":r0:"-style ids, which aren't valid as DOM ids for mermaid.
   const id = `mermaid-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
+  // Drawn again when the theme changes: mermaid bakes its colours into the SVG.
+  const { theme } = useTheme();
 
   useEffect(() => {
     let cancelled = false;
@@ -21,7 +24,7 @@ export function MermaidDiagram({ chart }: { chart: string }) {
       let lastError: unknown = null;
       try {
         const mermaid = (await import("mermaid")).default;
-        mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
+        mermaid.initialize({ startOnLoad: false, theme: theme === "light" ? "default" : "dark", securityLevel: "strict" });
         // Parse first: a failed render makes mermaid print its own error box into
         // the page, which a later successful attempt wouldn't remove.
         const attempts = [...new Set([chart, repairMermaid(chart)])];
@@ -54,7 +57,7 @@ export function MermaidDiagram({ chart }: { chart: string }) {
     return () => {
       cancelled = true;
     };
-  }, [chart, id]);
+  }, [chart, id, theme]);
 
   if (error) {
     return (
