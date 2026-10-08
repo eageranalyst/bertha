@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- The favicon: the header logo reduced to a filled shape so it reads at 16px. -->
+  <rect x="19" y="2" width="7" height="10" rx="1.5" fill="#5b8cff" />
+  <rect x="1" y="8" width="30" height="23" rx="6" fill="#5b8cff" />
+  <path d="M6.5 18.5 q3 2.6 6 0 M19.5 18.5 q3 2.6 6 0" fill="none" stroke="#0b0d12" stroke-width="2.6" stroke-linecap="round" />
+  <path d="M13.5 24 q2.5 2 5 0" fill="none" stroke="#0b0d12" stroke-width="2.2" stroke-linecap="round" />
+</svg>

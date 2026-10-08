@@ -446,6 +446,7 @@ images/             Docker image build folders
 evals/              agent evals (run.py, tasks.example.json)
 docs/               README assets (the logo)
 web/                Next.js/TypeScript UI, its own process (npm run dev)
+  app/icon.svg      favicon: a simplified Bertha logo
   app/(console)/    one route per tab: sessions, repos, schedules, skills,
                     models, settings
   components/       UI components; images/ holds the SVG mascots and logo
