@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { LogEntry, Model, Session } from "@/lib/types";
 import { Markdown } from "./Markdown";
 import { AgentOutputLog } from "./AgentOutputLog";
@@ -92,30 +92,46 @@ export function SessionDetail({
   const lastUserMessage = [...logs].reverse().find((l) => l.kind === "user_message");
   const workingSince =
     pendingEcho?.at ?? lastUserMessage?.created_at ?? session.last_activity_at;
-  // Set when the user sends a message, so the transcript scrolls to it
-  // even if they'd scrolled up to read earlier output.
-  const forceScrollRef = useRef(false);
+  // Whether the transcript follows its end. Opening a session or sending a
+  // message turns it on; scrolling up to read turns it off until you scroll
+  // back down. While on, the end stays in view as messages arrive and as
+  // content that renders late (markdown, diagrams) grows.
+  const stickRef = useRef(true);
+  const logsContentRef = useRef<HTMLDivElement>(null);
 
-  // Opening a session should land on its latest output, not the top.
+  function scrollToEnd() {
+    const el = logsRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }
+
   useEffect(() => {
-    forceScrollRef.current = true;
+    stickRef.current = true;
   }, [session.id]);
 
+  useLayoutEffect(() => {
+    if (stickRef.current) scrollToEnd();
+  }, [logs, pendingEcho]);
+
   useEffect(() => {
+    const content = logsContentRef.current;
+    if (!content) return;
+    const observer = new ResizeObserver(() => {
+      if (stickRef.current) scrollToEnd();
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
+
+  function onLogsScroll() {
     const el = logsRef.current;
-    if (!el) return;
-    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
-    if (atBottom || forceScrollRef.current) {
-      el.scrollTop = el.scrollHeight;
-      forceScrollRef.current = false;
-    }
-  }, [logs]);
+    if (el) stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
+  }
 
   async function submit() {
     const trimmed = text.trim();
     if (!trimmed) return;
     setText("");
-    forceScrollRef.current = true;
+    stickRef.current = true;
     setPendingEcho({ text: trimmed, at: Date.now() / 1000 });
     await onMessage(trimmed);
   }
@@ -178,7 +194,8 @@ export function SessionDetail({
 
       {session.spec_phase && <SpecPanel session={session} onApprove={onApproveSpec} onAbandon={onAbandonSpec} />}
 
-      <div id="detail-logs" ref={logsRef}>
+      <div id="detail-logs" ref={logsRef} onScroll={onLogsScroll}>
+        <div ref={logsContentRef}>
         {logs.map((l) => {
           const time = new Date(l.created_at * 1000).toLocaleTimeString();
           if (l.kind === "system") {
@@ -206,6 +223,7 @@ export function SessionDetail({
         {(session.status === "running" || session.status === "queued") && (
           <WorkingIndicator since={workingSince} queued={session.status === "queued"} />
         )}
+        </div>
       </div>
 
       {session.repo && <GitHubChanges session={session} />}
