@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { FactoryLogo } from "./images/FactoryMascot";
 
 // Shared visual vocabulary for the transcript: a message always has a
 // speaker (avatar + label), and user messages are visually unmistakable
@@ -9,7 +10,8 @@ import { useEffect, useState } from "react";
 
 export type Role = "user" | "agent" | "reviewer";
 
-const AVATARS: Record<Role, string> = { user: "🧑", agent: "🤖", reviewer: "💬" };
+// The agent is Bertha, so it speaks with her face: the header logo.
+const AVATARS: Record<Role, ReactNode> = { user: "🧑", agent: <FactoryLogo />, reviewer: "💬" };
 
 export function MessageRow({
   role,
@@ -24,7 +26,7 @@ export function MessageRow({
 }) {
   return (
     <div className={`msg-row msg-${role}`}>
-      <div className="msg-avatar">{AVATARS[role]}</div>
+      <div className={`msg-avatar msg-avatar-${role}`}>{AVATARS[role]}</div>
       <div className="msg-main">
         <div className="msg-meta">
           <span className="msg-label">{label}</span>
@@ -59,7 +61,7 @@ export function WorkingIndicator({ since, queued }: { since: number; queued: boo
   }, []);
   const elapsed = Math.max(0, Math.floor(now - since));
   return (
-    <MessageRow role="agent" label="Agent" time={""}>
+    <MessageRow role="agent" label="Bertha" time={""}>
       <div className="msg-bubble working">
         <span className="working-dots" aria-hidden="true">
           <span />

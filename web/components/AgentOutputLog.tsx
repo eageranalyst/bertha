@@ -57,7 +57,7 @@ function groupRuns(segments: AgentLogSegment[]): Item[] {
 export function AgentOutputLog({ content, time }: { content: string; time: string }) {
   const items = groupRuns(parseAgentLog(content));
   return (
-    <MessageRow role="agent" label="Agent" time={time}>
+    <MessageRow role="agent" label="Bertha" time={time}>
       <div className="agent-turn">
         {items.map((item, i) => {
           if (item.kind === "group") return <ActionGroup key={i} events={item.events} />;

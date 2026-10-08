@@ -355,6 +355,8 @@ main { display: flex; flex: 1; min-height: 0; }
   background: var(--bg-raised);
   border: 1px solid var(--border-soft);
 }
+.msg-avatar-agent { background: var(--accent-soft); }
+.msg-avatar-agent .factory-logo { width: 20px; height: 20px; }
 .msg-main { display: flex; flex-direction: column; gap: 4px; max-width: 86%; min-width: 0; }
 .msg-row.msg-user .msg-main { align-items: flex-end; }
 .msg-meta { display: flex; gap: 8px; align-items: baseline; font-size: 11px; }
@@ -396,7 +398,7 @@ main { display: flex; flex: 1; min-height: 0; }
 .sys-time { opacity: 0.7; }
 
 /* -- an agent turn: console output, action chips, and spoken text all
-   stack inside the one "Agent" row, each visually distinct from the
+   stack inside the one "Bertha" row, each visually distinct from the
    others so narration never blends into raw output or tool calls --- */
 
 .agent-turn { display: flex; flex-direction: column; gap: 8px; width: 100%; }

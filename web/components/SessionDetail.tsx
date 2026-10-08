@@ -24,13 +24,13 @@ function fmtTime(ts: number | null | undefined) {
 
 function speakerFor(kind: string, content: string): { role: Role; label: string } {
   if (kind === "user_message") return { role: "user", label: "You" };
-  if (kind === "ask_response") return { role: "agent", label: "Agent" };
+  if (kind === "ask_response") return { role: "agent", label: "Bertha" };
   if (kind === "ci_failure") return { role: "reviewer", label: "CI failed" };
   if (kind === "pr_comment") {
     const author = content.match(/^@(\S+):/)?.[1];
     return { role: "reviewer", label: author ? `@${author}` : "PR comment" };
   }
-  return { role: "agent", label: "Agent" };
+  return { role: "agent", label: "Bertha" };
 }
 
 export function SessionDetail({
