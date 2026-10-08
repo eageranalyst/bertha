@@ -52,14 +52,15 @@ export function RepoSkillsPanel({ repoId }: { repoId: number }) {
       <div className="skills-list">
         {skills.map((s) => (
           <div key={s.id} className={"skills-row" + (s.enabled ? " enabled" : "")}>
-            <label className="skills-toggle">
-              <input type="checkbox" checked={s.enabled} onChange={() => toggle(s)} />
+            <label className="skills-toggle" title={s.builtin ? "Built into Bertha: on for every repo" : undefined}>
+              <input type="checkbox" checked={s.enabled} disabled={!!s.builtin} onChange={() => toggle(s)} />
             </label>
             <div className="skills-main">
               <div className="skills-top">
                 <Link href={`/skills/${s.name}`} className="skills-name">
                   {s.name}
                 </Link>
+                {s.builtin ? <span className="skill-builtin">built in · always on</span> : null}
                 <span className="skill-version">v{s.version}</span>
               </div>
               <div className="skill-description">{s.description}</div>

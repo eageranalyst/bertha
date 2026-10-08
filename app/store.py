@@ -6,6 +6,7 @@ fresh short-lived connection per call is simple and fast enough for a
 local tool. No ORM: the schema is small and the queries are simple.
 """
 
+import hashlib
 import json
 import logging
 import sqlite3
@@ -94,7 +95,13 @@ CREATE TABLE IF NOT EXISTS skills (
     content TEXT NOT NULL,
     version INTEGER NOT NULL DEFAULT 1,
     created_at REAL NOT NULL,
-    updated_at REAL NOT NULL
+    updated_at REAL NOT NULL,
+    -- 1 for skills that ship with Bertha (skills/ in this repo): every code
+    -- session gets them, without enabling them per repo.
+    builtin INTEGER NOT NULL DEFAULT 0,
+    -- The hash of the content Bertha last installed, so an update can tell
+    -- whether you've edited the skill since (and then leaves it alone).
+    seeded_hash TEXT
 );
 
 CREATE TABLE IF NOT EXISTS skill_metadata (
@@ -315,6 +322,10 @@ def _add_missing_session_columns(conn: sqlite3.Connection) -> None:
     if model_cols and "loaded" not in model_cols:
         # 1 loaded in the server now, 0 not loaded, null unknown.
         conn.execute("ALTER TABLE models ADD COLUMN loaded INTEGER")
+    skill_cols = {row[1] for row in conn.execute("PRAGMA table_info(skills)").fetchall()}
+    if "builtin" not in skill_cols:
+        conn.execute("ALTER TABLE skills ADD COLUMN builtin INTEGER NOT NULL DEFAULT 0")
+        conn.execute("ALTER TABLE skills ADD COLUMN seeded_hash TEXT")
     session_cols = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
     if "context_harvested_at" not in session_cols:
         # When the session's closed PR was read for review notes.
@@ -807,7 +818,7 @@ def list_skills() -> list[dict[str, Any]]:
     """The library, without skill bodies."""
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT id, name, description, version, created_at, updated_at FROM skills ORDER BY name"
+            "SELECT id, name, description, version, builtin, created_at, updated_at FROM skills ORDER BY name"
         ).fetchall()
         return _attach_metadata(conn, [_row_to_dict(r) for r in rows])
 
@@ -858,6 +869,41 @@ def save_skill(name: str, description: str, content: str) -> tuple[dict[str, Any
     return get_skill(skill_id), created
 
 
+def seed_builtin_skill(name: str, description: str, content: str) -> str:
+    """Installs or updates a skill that ships with Bertha. A skill you've
+    edited since Bertha last installed it is left as you made it. Returns
+    what happened: "installed", "updated", "kept" (your edits), or "current".
+    """
+    digest = hashlib.sha256(content.encode()).hexdigest()
+    now = time.time()
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM skills WHERE name = ?", (name,)).fetchone()
+        if row is None:
+            conn.execute(
+                """
+                INSERT INTO skills (name, description, content, version, created_at, updated_at, builtin, seeded_hash)
+                VALUES (?, ?, ?, 1, ?, ?, 1, ?)
+                """,
+                (name, description, content, now, now, digest),
+            )
+            return "installed"
+        conn.execute("UPDATE skills SET builtin = 1 WHERE id = ?", (row["id"],))
+        if row["content"] == content:
+            conn.execute("UPDATE skills SET seeded_hash = ? WHERE id = ?", (digest, row["id"]))
+            return "current"
+        edited = hashlib.sha256(row["content"].encode()).hexdigest() != row["seeded_hash"]
+        if edited:
+            return "kept"
+        conn.execute(
+            """
+            UPDATE skills SET description = ?, content = ?, version = version + 1, updated_at = ?, seeded_hash = ?
+            WHERE id = ?
+            """,
+            (description, content, now, digest, row["id"]),
+        )
+        return "updated"
+
+
 def set_skill_metadata(skill_id: int, metadata: dict[str, str]) -> None:
     with _connect() as conn:
         conn.execute("DELETE FROM skill_metadata WHERE skill_id = ?", (skill_id,))
@@ -875,15 +921,15 @@ def delete_skill(skill_id: int) -> None:
 
 
 def list_repo_skills(repo: str) -> list[dict[str, Any]]:
-    """Every skill enabled for the repo, bodies included. Code sessions
-    use this to write the skills into their container.
+    """Every skill enabled for the repo, and every built-in one, bodies
+    included. Code sessions use this to write the skills into their container.
     """
     with _connect() as conn:
         rows = conn.execute(
             """
             SELECT s.name, s.content FROM skills s
-            JOIN repo_skills rs ON rs.skill_id = s.id
-            WHERE rs.repo = ? ORDER BY s.name
+            WHERE s.builtin = 1 OR s.id IN (SELECT skill_id FROM repo_skills WHERE repo = ?)
+            ORDER BY s.name
             """,
             (repo,),
         ).fetchall()
@@ -895,8 +941,8 @@ def library_for_repo(repo: str) -> list[dict[str, Any]]:
     with _connect() as conn:
         rows = conn.execute(
             """
-            SELECT s.id, s.name, s.description, s.version, s.created_at, s.updated_at,
-                   (rs.skill_id IS NOT NULL) AS enabled
+            SELECT s.id, s.name, s.description, s.version, s.builtin, s.created_at, s.updated_at,
+                   (rs.skill_id IS NOT NULL OR s.builtin = 1) AS enabled
             FROM skills s
             LEFT JOIN repo_skills rs ON rs.skill_id = s.id AND rs.repo = ?
             ORDER BY s.name

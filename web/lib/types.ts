@@ -251,6 +251,8 @@ export interface Skill {
   created_at: number;
   updated_at: number;
   metadata: Record<string, string>;
+  /** Ships with Bertha: on for every repo, and can't be deleted. */
+  builtin?: number | boolean;
 }
 
 /** A skill with its markdown body, from the single-skill endpoints. */

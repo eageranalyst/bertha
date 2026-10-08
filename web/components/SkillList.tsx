@@ -20,6 +20,7 @@ export function SkillList({ skills, selectedName }: { skills: Skill[]; selectedN
           >
             <div className="session-row-top">
               <span className="session-row-title">{s.name}</span>
+              {s.builtin ? <span className="skill-builtin">built in</span> : null}
               <span className="skill-version">v{s.version}</span>
             </div>
             <div className="session-row-meta">

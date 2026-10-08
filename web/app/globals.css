@@ -807,6 +807,7 @@ a.skill-row.selected { background: var(--accent-soft); }
 .skill-replace { margin-top: 18px; }
 .skill-replace summary { cursor: pointer; color: var(--text-dim); font-size: 13px; margin-bottom: 10px; }
 .skill-danger { margin-top: 28px; }
+.skill-builtin { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--info); background: var(--info-soft); padding: 1px 7px; border-radius: 999px; flex-shrink: 0; }
 .pill-type-skill { background: var(--green-soft); color: var(--green); }
 .meta-editor { display: flex; flex-direction: column; gap: 6px; max-width: 640px; }
 .meta-editor-row { display: grid; grid-template-columns: 1fr 2fr auto; gap: 6px; }

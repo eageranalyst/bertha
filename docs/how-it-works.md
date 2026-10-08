@@ -245,11 +245,21 @@ history), with the schedule's repo, optional model, and session type.
   once per missed slot.
 - **Run now** starts a run immediately, under the same rules.
 
-The **Backlog groom** template grooms a repo's open issues: it follows the
-repo's own grooming rules (a `groom-backlog` skill in `.claude/skills/`, and
-the label vocabulary in its README, if present), fleshes out thin issues,
-applies the standard labels, closes duplicates and stale issues, and asks
+To groom a repo's backlog on a schedule, give it a prompt like "Groom this
+repository's open GitHub issues with the bertha-groom skill" and let the agent
+change any issue in the repo. The built-in `bertha-groom` skill holds the
+how-to: it
+follows the repo's own grooming rules (a `groom-backlog` skill in
+`.claude/skills/`, and the label vocabulary in its README, if present), gives
+each issue that needs work to its own worker, keeps authors' words, fixes
+drifted citations, applies the standard labels, closes duplicates, and asks
 questions in comments.
+
+**Built-in skills** ship with Bertha in `skills/`, one folder per skill. At
+startup they're added to the skills library, where they're marked "built in",
+and every code session gets them without enabling them per repo. You can
+edit one, but not delete it, and a newer version of Bertha only updates a
+built-in skill you haven't changed.
 
 ### GitHub tools
 
@@ -476,6 +486,7 @@ images/             Docker image build folders
                     entrypoint.sh, push.sh, git_safe.sh, WORKING.md, run_summary.py
   wiki/             python + git, for wiki build containers
 evals/              agent evals (run.py, tasks.example.json)
+skills/             built-in skills, one folder with a SKILL.md each (bertha-groom)
 docs/               this guide, and the logo
 web/                Next.js/TypeScript UI, its own process (npm run dev)
   app/icon.svg      favicon: a simplified Bertha logo

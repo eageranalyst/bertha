@@ -73,6 +73,7 @@ export default function SkillPage() {
       <div id="detail-header">
         <div>
           <span className="pill pill-type-skill">skill</span>
+          {skill.builtin ? <span className="skill-builtin">built in</span> : null}
           <h2>{skill.name}</h2>
           <p className="skill-description-lg">{skill.description}</p>
         </div>
@@ -116,11 +117,18 @@ export default function SkillPage() {
         </div>
       )}
 
-      <div className="skill-danger">
-        <button type="button" className="btn-danger" onClick={remove}>
-          Delete skill
-        </button>
-      </div>
+      {skill.builtin ? (
+        <p className="skill-hint skill-danger">
+          This skill ships with Bertha, and every repo&apos;s code sessions get it. It can&apos;t be deleted, but
+          you can edit it: a newer version of Bertha won&apos;t overwrite your changes.
+        </p>
+      ) : (
+        <div className="skill-danger">
+          <button type="button" className="btn-danger" onClick={remove}>
+            Delete skill
+          </button>
+        </div>
+      )}
     </div>
   );
 }

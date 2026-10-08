@@ -49,6 +49,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("factory.main")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+# Skills that ship with Bertha, one folder each with a SKILL.md.
+BUILTIN_SKILLS_DIR = BASE_DIR / "skills"
 AGENT_IMAGE_DIR = BASE_DIR / "images" / "agent"
 WIKI_IMAGE_DIR = BASE_DIR / "images" / "wiki"
 
@@ -83,6 +85,7 @@ class TickThread(threading.Thread):
 async def lifespan(app: FastAPI):
     settings = get_settings()
     store.init_db(settings.db_path)
+    _seed_builtin_skills()
     try:
         model_registry.refresh(settings)
     except Exception as exc:
@@ -128,6 +131,22 @@ async def lifespan(app: FastAPI):
     fast_thread.stop()
     slow_thread.stop()
     tools_server.should_exit = True
+
+
+def _seed_builtin_skills() -> None:
+    """Puts the skills in skills/ into the library, keeping your edits."""
+    for path in sorted(BUILTIN_SKILLS_DIR.glob("*/SKILL.md")):
+        content = path.read_text(encoding="utf-8")
+        try:
+            name, description = parse_skill(content)
+        except ValueError as exc:
+            logger.warning("skipping built-in skill %s: %s", path.parent.name, exc)
+            continue
+        outcome = store.seed_builtin_skill(name, description, content)
+        if outcome == "kept":
+            logger.info("built-in skill %s has your edits, so this version of Bertha left it alone", name)
+        elif outcome != "current":
+            logger.info("built-in skill %s %s", name, outcome)
 
 
 def _start_tools_server(port: int) -> uvicorn.Server:
@@ -597,7 +616,8 @@ def api_set_skill_metadata(skill_id: int, body: SkillMetadataIn):
 
 @app.delete("/api/skills/{skill_id}")
 def api_delete_skill(skill_id: int):
-    _skill_or_404(skill_id)
+    if _skill_or_404(skill_id).get("builtin"):
+        raise HTTPException(400, "built-in skills ship with Bertha and can't be deleted; edit it instead")
     store.delete_skill(skill_id)
     return {"ok": True}
 
@@ -611,7 +631,8 @@ def api_repo_skills(repo_id: int):
 @app.put("/api/repos/{repo_id}/skills/{skill_id}")
 def api_set_repo_skill(repo_id: int, skill_id: int, body: RepoSkillIn):
     repo = _repo_or_404(repo_id)
-    _skill_or_404(skill_id)
+    if _skill_or_404(skill_id).get("builtin"):
+        raise HTTPException(400, "built-in skills are on for every repo")
     store.set_repo_skill(repo["full_name"], skill_id, body.enabled)
     return store.library_for_repo(repo["full_name"])
 
