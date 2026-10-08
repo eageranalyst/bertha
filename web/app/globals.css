@@ -559,8 +559,14 @@ a:hover { text-decoration: underline; }
 .spec-phase { font-weight: 600; color: var(--text); }
 .spec-phase-review { color: var(--warn); }
 .spec-phase-abandoned { color: var(--text-faint); }
-.spec-sheet { position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column;
-              background: var(--bg); padding: 16px 24px; box-shadow: 0 0 0 1px var(--border); }
+/* Floats over the right of the session, which stays visible beside it. */
+.spec-sheet { position: absolute; top: 12px; right: 12px; bottom: 12px; z-index: 30;
+              width: min(720px, calc(100% - 24px)); display: flex; flex-direction: column;
+              background: var(--bg-raised); padding: 16px 22px; border: 1px solid var(--border);
+              border-radius: 12px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+              animation: spec-sheet-in 0.18s ease-out; }
+@keyframes spec-sheet-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .spec-sheet { animation: none; } }
 .spec-sheet-header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding-bottom: 12px;
                      border-bottom: 1px solid var(--border); font-size: 12.5px; }
 .spec-sheet-hint { margin: 10px 0 0; font-size: 12px; color: var(--text-faint); }
