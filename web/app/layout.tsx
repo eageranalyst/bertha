@@ -7,7 +7,7 @@ const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mon
 
 export const metadata: Metadata = {
   title: "Bertha",
-  description: "Local sessions, local model",
+  description: "She builds...",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

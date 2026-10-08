@@ -23,7 +23,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span className="brand-mark">⚙</span>
           <div>
             <h1>Bertha</h1>
-            <p className="subtitle">Local sessions, local model</p>
+            <p className="subtitle">She builds...</p>
           </div>
         </div>
         <nav className="top-tabs" aria-label="Sections">
