@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 34 34">
+  <!-- The header logo from web/components/images/FactoryMascot.tsx, with the theme colours filled in. -->
+  <rect width="34" height="34" rx="8" fill="#1c2742" />
+  <g transform="translate(1 1)" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="19" y="4" width="5" height="8" rx="1" fill="#1c2742" stroke="#8b8f98" stroke-width="1.6" />
+    <rect x="8" y="7" width="5" height="3" rx="1.5" fill="#1c2742" stroke="#e3b341" stroke-width="1.6" />
+    <rect x="4" y="10" width="24" height="17" rx="4" fill="#1c2742" stroke="#5b8cff" stroke-width="1.8" />
+    <path d="M9.5 18 q1.5 1.2 3 0 M19.5 18 q1.5 1.2 3 0 M14.5 22 q1.5 1.2 3 0" fill="none" stroke="#e8e9ec" stroke-width="1.5" />
+  </g>
+</svg>

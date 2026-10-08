@@ -1,6 +1,12 @@
-# Agent Factory
+<p align="center">
+  <img src="docs/bertha-logo.svg" alt="Bertha logo: a sleepy factory machine" width="96" height="96">
+</p>
 
-A lightweight local service that picks up GitHub issues assigned to a
+<h1 align="center">Bertha</h1>
+
+<p align="center"><em>She builds...</em></p>
+
+Bertha is a lightweight local service that picks up GitHub issues assigned to a
 bot account, does the work in an ephemeral Docker container, opens a
 PR, then goes idle. While idle it polls the PR for new comments and
 wakes itself back up to act on them. A local web UI (Next.js, its own
@@ -392,7 +398,7 @@ Docker Desktop; on Linux Docker Engine `docker_runner.py` already adds
 the `host-gateway` mapping that makes it work there too).
 
 Docker must be running locally; the first start builds the agent image
-from `images/agent/`.
+from `images/agent/` and the wiki build image from `images/wiki/`.
 
 ```bash
 uvicorn app.main:app --reload --port 8787
@@ -414,23 +420,34 @@ Open `http://localhost:3000`.
 ```
 app/
   config.py         env settings
-  store.py          sqlite: sessions, session_logs, repos, wiki tables
-  github_client.py  polling: assigned issues, new PR comments; repo metadata
-  docker_runner.py  per-turn ephemeral containers on a per-session volume
+  preflight.py      checks run before the server starts
+  store.py          sqlite: sessions, session_logs, repos, schedules, wiki tables
   scheduler.py      the state machine (ask + code, stop support)
+  docker_runner.py  per-turn ephemeral containers on a per-session volume
+  egress_proxy.py   the agent network's only way out
+  github_client.py  polling: assigned issues, new PR comments; repo metadata
+  github_tools.py   MCP server giving agents scoped GitHub access without a token
+  specs.py          spec-first sessions
+  models.py         model registry: discovery, tiers, choosing a model
+  routing.py        per-turn model routing
+  agent_settings.py limits on code turns (Settings)
+  cron.py           cron expressions for schedules
+  skills.py         SKILL.md parsing for the skills library
+  code_index.py     embedding-based code search for agents
   wiki_scan.py      deterministic codebase scan (languages, frameworks, docs, ...)
   wiki_build.py     clone, scan and page writing; runs inside the wiki container
   wiki_worker.py    the wiki container's entrypoint
   wiki_indexer.py   host side: starts a build container, follows it, stores the result
   main.py           FastAPI routes + CORS for the web/ origin
-images/agent/
-  Dockerfile        node+python+git+gh+opencode base image
-  entrypoint.sh      clone/resume, run opencode, push, gh pr create
-images/wiki/
-  Dockerfile        python + git, for wiki build containers
+images/             Docker image build folders
+  agent/            node+python+git+gh+opencode image for code sessions:
+                    entrypoint.sh, push.sh, git_safe.sh, WORKING.md, run_summary.py
+  wiki/             python + git, for wiki build containers
+evals/              agent evals (run.py, tasks.example.json)
+docs/               README assets (the logo)
 web/                Next.js/TypeScript UI, its own process (npm run dev)
-  app/              layout, globals.css, the one page (Sessions / Repos tabs)
-  components/       SessionList, ComposeDraft, SessionDetail, ReposView,
-                    RepoDetail, RepoMetadataPanel, RepoWiki, Markdown, MermaidDiagram
-  lib/               api.ts (typed fetch client), types.ts, format.ts
+  app/(console)/    one route per tab: sessions, repos, schedules, skills,
+                    models, settings
+  components/       UI components; images/ holds the SVG mascots and logo
+  lib/              api.ts (typed fetch client), types.ts, format.ts, ...
 ```
