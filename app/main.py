@@ -92,6 +92,9 @@ async def lifespan(app: FastAPI):
     for repo in settings.repos:
         store.create_repo(repo)
     runner = DockerRunner(settings.agent_image_tag, settings.wiki_image_tag, isolate=settings.egress_isolation)
+    # Closed and archived sessions' workspaces, if any outlived them.
+    runner.remove_finished_volumes([store.workspace_of(s) for s in store.list_sessions()
+                                    if s["status"] in ("closed", "archived")])
     runner.ensure_image(AGENT_IMAGE_DIR)
     runner.ensure_image(WIKI_IMAGE_DIR, tag=settings.wiki_image_tag)
     if settings.egress_isolation:

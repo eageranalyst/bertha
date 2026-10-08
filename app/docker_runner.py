@@ -50,6 +50,7 @@ class DockerRunner:
         """Builds the image when it's missing or its build folder has changed
         since it was built, so an edited entrypoint takes effect on restart."""
         tag = tag or self.image_tag
+        self.prune_replaced_images()
         digest = hashlib.sha256()
         for path in sorted(p for p in build_context.rglob("*") if p.is_file()):
             digest.update(str(path.relative_to(build_context)).encode() + b"\0" + path.read_bytes())
@@ -66,6 +67,21 @@ class DockerRunner:
         for chunk in logs:
             if "stream" in chunk:
                 logger.debug(chunk["stream"].rstrip())
+        self.prune_replaced_images()
+
+    def prune_replaced_images(self) -> None:
+        """A rebuild moves the tag to the new image and leaves the old one
+        untagged, about a gigabyte each time. Removes those: only images
+        Bertha built (they carry its factory.context label), and only ones no
+        container still uses, so a turn running on the old image keeps it."""
+        try:
+            pruned = self.client.images.prune(filters={"dangling": True, "label": "factory.context"})
+        except Exception as exc:
+            logger.warning("couldn't remove replaced images: %s", exc)
+            return
+        freed = pruned.get("SpaceReclaimed") or 0
+        if freed:
+            logger.info("removed replaced images, %.1f GB", freed / 1024**3)
 
     # -- isolation ------------------------------------------------------
 
@@ -200,6 +216,22 @@ class DockerRunner:
             self.client.volumes.get(workspace).remove(force=True)
         except NotFound:
             pass
+
+    def remove_finished_volumes(self, workspaces: list[str]) -> None:
+        """Removes these sessions' volumes where they're still there. For
+        sessions that are closed or archived, whose volume should already be
+        gone; one in use, or already gone, is left alone."""
+        removed = 0
+        for workspace in workspaces:
+            try:
+                self.client.volumes.get(workspace).remove()
+                removed += 1
+            except NotFound:
+                pass
+            except Exception as exc:
+                logger.warning("couldn't remove %s: %s", workspace, exc)
+        if removed:
+            logger.info("removed %s volume(s) of closed or archived sessions", removed)
 
     def start_wiki_build(self, repo: str, env: dict[str, str], app_dir: Path,
                          limits: dict[str, int], model_port: int) -> str:
