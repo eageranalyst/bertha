@@ -54,6 +54,11 @@ header {
   color: var(--accent);
   border-radius: var(--radius);
 }
+.factory-logo { width: 26px; height: 26px; }
+.factory-logo-part { fill: var(--accent-soft); stroke: var(--text-dim); stroke-width: 1.6; stroke-linejoin: round; }
+.factory-logo-lamp { fill: var(--accent-soft); stroke: var(--warn); stroke-width: 1.6; }
+.factory-logo-body { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.8; }
+.factory-logo-face { fill: none; stroke: var(--text); stroke-width: 1.5; stroke-linecap: round; }
 .brand h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
 .subtitle { margin: 0; font-size: 12px; color: var(--text-dim); }
 
@@ -714,6 +719,24 @@ a.subtab { display: inline-block; }
 .wiki-mascot-face { fill: none; stroke: var(--text); stroke-width: 2; stroke-linecap: round; }
 .wiki-mascot-blush { fill: var(--danger); opacity: 0.35; }
 .wiki-mascot-sparkle { fill: var(--warn); }
+.factory-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding-top: 96px; }
+.factory-mascot { width: 240px; height: 180px; }
+.factory-mascot-shadow { fill: var(--border); opacity: 0.6; }
+.factory-mascot-part { fill: var(--bg); stroke: var(--text-dim); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.factory-mascot-body { fill: var(--bg); stroke: var(--accent); stroke-width: 2; }
+.factory-mascot-lamp { fill: var(--bg); stroke: var(--warn); stroke-width: 2; }
+.factory-mascot-crate { fill: var(--bg); stroke: var(--code-accent); stroke-width: 2; stroke-linejoin: round; }
+.factory-mascot-face { fill: none; stroke: var(--text); stroke-width: 2; stroke-linecap: round; }
+.factory-mascot-blush { fill: var(--danger); opacity: 0.35; }
+.factory-mascot-puff { fill: none; stroke: var(--text-faint); stroke-width: 1.6; animation: factory-puff 3s ease-in-out infinite; }
+.factory-mascot-puff-late { animation-delay: 1.5s; }
+@keyframes factory-puff {
+  0%, 100% { opacity: 0.2; transform: translateY(2px); }
+  50% { opacity: 1; transform: translateY(-2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .factory-mascot-puff { animation: none; }
+}
 .wiki-empty-title { margin: 0; font-size: 16px; font-weight: 600; }
 .wiki-empty-body { margin: 0 0 10px; max-width: 420px; font-size: 13px; line-height: 1.55; color: var(--text-dim); }
 .wiki-empty code { font-size: 12.5px; background: var(--bg-sunken); padding: 1px 6px; border-radius: 4px; }

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { FactoryLogo } from "@/components/FactoryMascot";
 
 const TABS = [
   { href: "/sessions", label: "Sessions" },
@@ -20,7 +21,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div id="app">
       <header>
         <div className="brand">
-          <span className="brand-mark">⚙</span>
+          <span className="brand-mark">
+            <FactoryLogo />
+          </span>
           <div>
             <h1>Bertha</h1>
             <p className="subtitle">She builds...</p>
