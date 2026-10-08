@@ -180,6 +180,11 @@ button {
 }
 button:active { transform: translateY(1px); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Links styled as buttons (New session, say) get the same shape as buttons. */
+.btn-primary, .btn-code, .btn-ghost, .btn-danger {
+  border-radius: var(--radius); font-size: 13px; font-weight: 500;
+}
+a.btn-primary, a.btn-code, a.btn-ghost, a.btn-danger { padding: 7px 14px; }
 .btn-primary { background: var(--accent); color: white; }
 .btn-primary:hover:not(:disabled) { opacity: 0.88; }
 .btn-code { background: var(--code-accent); color: var(--on-code-accent); }
@@ -188,6 +193,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-danger { background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger-border); }
 .btn-danger:hover { background: var(--danger-hover); }
 .btn-block { width: 100%; padding: 10px; font-size: 13px; }
+a.btn-block { padding: 10px; }
 
 select, textarea, input[type="text"] {
   background: var(--bg-sunken);
@@ -230,6 +236,7 @@ main { display: flex; flex: 1; min-height: 0; }
                     border-bottom: 1px solid var(--border); }
 .rail-new { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
             padding: 0; font-size: 18px; text-decoration: none; }
+a.rail-new { padding: 0; }
 .session-rail { display: flex; flex-direction: column; padding: 8px; gap: 2px; }
 .rail-item { width: 100%; height: 30px; display: flex; align-items: center; gap: 12px; padding: 0 0 0 12px;
              background: none; border: none; border-radius: 6px; cursor: pointer; color: var(--text);
@@ -519,6 +526,8 @@ a:hover { text-decoration: underline; }
   color: var(--text-dim);
   padding: 6px 14px;
   border: none;
+  /* Inside the 8px track with 3px padding, so 6px keeps the curves parallel. */
+  border-radius: 6px;
 }
 .top-tab:hover { color: var(--text); }
 .top-tab.active { background: var(--bg-raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--border); }
