@@ -16,8 +16,8 @@ mkdir -p /etc/factory/gh
 
 write_global_git_config() {
     : > "$GIT_CONFIG_GLOBAL"
-    git config --global user.name "${BOT_NAME:-factory-agent}"
-    git config --global user.email "${BOT_EMAIL:-factory-agent@users.noreply.github.com}"
+    git config --global user.name "${BOT_NAME:?BOT_NAME is not set}"
+    git config --global user.email "${BOT_EMAIL:?BOT_EMAIL is not set}"
     git config --global credential.helper \
         '!f() { echo "username=x-access-token"; echo "password=$GITHUB_TOKEN"; }; f'
     git config --global --add safe.directory /data/repo

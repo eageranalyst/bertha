@@ -109,8 +109,10 @@ def get_settings() -> Settings:
         tools_port=int(os.environ.get("FACTORY_TOOLS_PORT", "8790")),
         host=os.environ.get("FACTORY_HOST", "127.0.0.1"),
         port=int(os.environ.get("FACTORY_PORT", "8787")),
-        bot_name=os.environ.get("FACTORY_BOT_NAME", "factory-agent"),
-        bot_email=os.environ.get(
-            "FACTORY_BOT_EMAIL", "factory-agent@users.noreply.github.com"
-        ),
+        # Commits are signed as the bot account by default. GitHub credits a
+        # <login>@users.noreply.github.com author to whoever owns that login,
+        # so a made-up name here would credit a stranger's account.
+        bot_name=os.environ.get("FACTORY_BOT_NAME") or os.environ["GITHUB_BOT_USERNAME"],
+        bot_email=os.environ.get("FACTORY_BOT_EMAIL")
+        or f'{os.environ["GITHUB_BOT_USERNAME"]}@users.noreply.github.com',
     )

@@ -19,7 +19,7 @@ AS_AGENT=(setpriv --reuid=node --regid=node --init-groups env -u GITHUB_TOKEN -u
     cd /data/repo
     if [ -n "$(git status --porcelain)" ]; then
         git add -A
-        git -c user.name="${BOT_NAME:-factory-agent}" -c user.email="${BOT_EMAIL:-factory-agent@users.noreply.github.com}" \
+        git -c user.name="${BOT_NAME:?BOT_NAME is not set}" -c user.email="${BOT_EMAIL:?BOT_EMAIL is not set}" \
             commit -q -m "${COMMIT_MESSAGE:-Work in progress}"
     fi
     # Workflow files are never pushed (see entrypoint.sh): say so plainly.
