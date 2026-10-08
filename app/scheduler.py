@@ -597,12 +597,27 @@ class Scheduler:
                     harness_session_id = value
 
         agent_failed = "FACTORY_AGENT_FAILED=1" in logs
+        # A turn that changed nothing and said nothing did no work, however
+        # cleanly it exited (a model that loses its way can end like that).
+        silent = (exit_code == 0 and not agent_failed and not _final_message(logs)
+                  and ("FACTORY_NO_CHANGES=1" in logs or not session["repo"]))
+        loop = next((line.split("=", 1)[1].strip() for line in logs.splitlines()
+                     if line.startswith("FACTORY_LOOP=")), "")
+        if loop:
+            store.append_log(session["id"], "system",
+                             f"Stopped the agent retrying something that kept failing: {loop}")
+        if silent:
+            store.append_log(session["id"], "system",
+                             "The agent finished without changing anything or giving an answer")
+        step_limit = "FACTORY_STEP_LIMIT=1" in logs
+        # Only the first failure in a row is retried on another model.
+        retry_allowed = not session.get("last_turn_failed")
         if "FACTORY_RUN_TIMED_OUT=1" in logs:
             store.append_log(session["id"], "system", "The agent run went past its time limit and was stopped")
             if session.get("schedule_id"):
                 # Recorded before _settle, which would otherwise record a plain failure.
                 store.finish_schedule_run(session["id"], "timed_out", "the agent run went past the time left")
-        if exit_code != 0 or agent_failed:
+        if exit_code != 0 or agent_failed or silent:
             new_status = "failed"
         elif session["repo"]:
             # A PR means the work is waiting on review. Without one the turn
@@ -653,11 +668,18 @@ class Scheduler:
                 "the model server couldn't load it",
                 "Pick a model that's loaded, or free memory in the model server.",
             )
+        elif new_status == "failed" and (silent or loop or step_limit) and retry_allowed:
+            self._retry_on_another_model(
+                store.get_session(session["id"]),
+                "it kept retrying something that fails" if loop
+                else "it ran out of steps before finishing" if step_limit else "it lost its way on this task",
+                "Send a message to try again, or pick another model.",
+            )
 
     def _retry_on_another_model(self, session: dict[str, Any], problem: str, advice: str) -> None:
-        """A turn whose model couldn't take the request never started, so it's
-        run again on another model, excluding the one that failed. A pinned
-        session isn't moved; the failure says why instead.
+        """A turn whose model couldn't take the request, or that went nowhere
+        on it, is run again on another model, excluding the one that failed.
+        A pinned session isn't moved; the failure says why instead.
         """
         failed_model = session["model"]
         if session["model_pinned"]:

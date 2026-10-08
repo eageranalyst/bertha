@@ -280,6 +280,7 @@ MESSAGE_THIS_RUN="$MESSAGE"
 CONTINUATIONS_USED=0
 TOKENS_USED=0
 PREVIOUS_REJECTED=""
+PREVIOUS_LOOP=""
 STATE="unfinished"
 AGENT_EXIT=0
 while true; do
@@ -287,13 +288,16 @@ while true; do
     : > "$RUN_FILE"
     # The events go to stdout as they happen (Bertha streams the container's
     # output into the transcript) and to the run file for the summary below.
+    # The watcher also stops the run when the agent keeps failing on the same
+    # thing (the same missing file, say), rather than letting it spend the
+    # run's steps retrying.
     set +e
     if [ -n "$SESSION" ]; then
         timeout "${AGENT_RUN_TIMEOUT_SECONDS:-900}" "${AS_AGENT[@]}" opencode run "$MESSAGE_THIS_RUN" \
-            -s "$SESSION" -m "$OPENCODE_MODEL" --format json | tee "$RUN_FILE"
+            -s "$SESSION" -m "$OPENCODE_MODEL" --format json | python3 /opt/factory/run_summary.py --watch "$RUN_FILE"
     else
         timeout "${AGENT_RUN_TIMEOUT_SECONDS:-900}" "${AS_AGENT[@]}" opencode run "$MESSAGE_THIS_RUN" \
-            -m "$OPENCODE_MODEL" --format json | tee "$RUN_FILE"
+            -m "$OPENCODE_MODEL" --format json | python3 /opt/factory/run_summary.py --watch "$RUN_FILE"
     fi
     AGENT_EXIT=${PIPESTATUS[0]}
     set -e
@@ -307,12 +311,23 @@ while true; do
     STATE=$(printf '%s\n' "$SUMMARY" | sed -n 's/^STATE=//p')
     TOKENS=$(printf '%s\n' "$SUMMARY" | sed -n 's/^TOKENS=//p')
     REJECTED=$(printf '%s\n' "$SUMMARY" | sed -n 's/^REJECTED=//p')
+    LOOP=$(printf '%s\n' "$SUMMARY" | sed -n 's/^LOOP=//p')
+    STEP_LIMIT=$(printf '%s\n' "$SUMMARY" | sed -n 's/^STEP_LIMIT=//p')
     TOKENS_USED=$((TOKENS_USED + ${TOKENS:-0}))
     echo "=== Run finished (exit $AGENT_EXIT, $STATE, ${TOKENS:-0} tokens; turn total $TOKENS_USED) ==="
 
     if [ "$AGENT_EXIT" -eq 124 ]; then
         echo "FACTORY_RUN_TIMED_OUT=1"
         break
+    fi
+    if [ -n "$LOOP" ]; then
+        echo "FACTORY_LOOP=$LOOP"
+        STATE="unfinished"  # cut off mid-run, whatever its last step said
+    fi
+    if [ -n "$STEP_LIMIT" ] && [ "$STATE" = "done" ]; then
+        # Out of steps, the model is made to answer, which looks like done.
+        echo "FACTORY_STEP_LIMIT=1"
+        STATE="unfinished"
     fi
     if [ "$STATE" = "done" ]; then
         break
@@ -340,13 +355,24 @@ while true; do
         echo "FACTORY_CONTINUE_STOPPED=token budget used"
         break
     fi
-    if [ -n "$REJECTED" ] && [ "$REJECTED" = "$PREVIOUS_REJECTED" ]; then
+    if [ -n "$LOOP" ] && [ "$LOOP" = "$PREVIOUS_LOOP" ]; then
+        echo "FACTORY_CONTINUE_STOPPED=the agent kept retrying the same failing thing after being told"
+        break
+    fi
+    if [ -z "$LOOP" ] && [ -n "$REJECTED" ] && [ "$REJECTED" = "$PREVIOUS_REJECTED" ]; then
         echo "FACTORY_CONTINUE_STOPPED=the same command was rejected again"
         break
     fi
     PREVIOUS_REJECTED="$REJECTED"
+    PREVIOUS_LOOP="$LOOP"
     CONTINUATIONS_USED=$((CONTINUATIONS_USED + 1))
-    MESSAGE_THIS_RUN="The previous run stopped before you answered, usually because a command was rejected. Carry on with the task: use the glob, grep and read tools, or a simpler command, and finish with a final answer."
+    if [ -n "$STEP_LIMIT" ] && [ -z "$LOOP" ]; then
+        MESSAGE_THIS_RUN="Your last run used all its steps before the task was finished. You have more now: carry on from where you got to, and finish with a final answer once the work is done and checked."
+    elif [ -n "$LOOP" ]; then
+        MESSAGE_THIS_RUN="Bertha stopped your last run because you kept retrying something that fails: $LOOP. Don't try it again. If it's a path, list its parent directory (or use glob) and use the name that's actually there; names are easy to misread. Then carry on with the task and finish with a final answer."
+    else
+        MESSAGE_THIS_RUN="The previous run stopped before you answered, usually because a command was rejected. Carry on with the task: use the glob, grep and read tools, or a simpler command, and finish with a final answer."
+    fi
 done
 
 # A turn that never reached an answer is a failure, not a clean finish.
