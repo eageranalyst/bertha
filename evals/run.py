@@ -1,13 +1,16 @@
 """Runs Bertha's agent on a fixed set of tasks and checks the results.
 
-Each task in tasks.json runs as a dry-run code session through Bertha's API:
+Tasks are about your own repos, so they live in evals/tasks.json, which isn't
+committed; copy tasks.example.json to start one. Without it, the example runs.
+
+Each task runs as a dry-run code session through Bertha's API:
 the agent works as normal, and commits in its workspace, but never pushes or
 opens a PR. When the session finishes, its checks run against the workspace
 and the agent's reply. Results go to evals/results/<time>.jsonl, so runs
 before and after a change can be compared.
 
     python evals/run.py                       # every task, default routing
-    python evals/run.py --model qwen3.6-35b-a3b --task map-pin-image
+    python evals/run.py --model qwen3.6-35b-a3b --task fix-broken-image
 
 Check types (all must pass):
     {"changed": "path"}            the path was modified (glob allowed)
@@ -126,7 +129,8 @@ def check(docker_client, result: dict, checks: list[dict]) -> list[dict]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tasks", default=str(HERE / "tasks.json"))
+    own_tasks = HERE / "tasks.json"
+    parser.add_argument("--tasks", default=str(own_tasks if own_tasks.exists() else HERE / "tasks.example.json"))
     parser.add_argument("--task", action="append", help="run only these task ids")
     parser.add_argument("--model", help="pin every session to this model (default: routing)")
     parser.add_argument("--timeout", type=int, default=3600, help="seconds per task")

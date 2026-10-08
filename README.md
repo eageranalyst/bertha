@@ -303,7 +303,9 @@ prompts.
 `evals/run.py` runs the agent on the tasks in `evals/tasks.json` as dry-run
 sessions (they commit in the workspace but never push or open a PR), checks
 the results, and writes them to `evals/results/`. Run it before and after a
-change to see whether it helped:
+change to see whether it helped. Tasks name your own repos, so
+`evals/tasks.json` isn't committed: copy `evals/tasks.example.json` to start
+yours.
 
 ```bash
 python evals/run.py                          # every task, with routing

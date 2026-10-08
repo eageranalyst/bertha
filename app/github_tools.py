@@ -300,7 +300,7 @@ def call_tool(grant: dict, name: str, args: dict) -> Any:
     raise ToolError(f"unknown tool {name}")
 
 
-# The house issue shape (your-repo's groom-backlog skill) and code citations.
+# The house issue shape (the sections a groom-backlog skill asks for) and code citations.
 SECTIONS = {"why": r"^#+\s*why\b", "proposed_changes": r"^#+\s*proposed changes\b",
             "out_of_scope": r"^#+\s*out of scope\b"}
 CITATION = re.compile(r"[\w./-]+\.(?:py|ts|tsx|js|jsx|sql|toml|json|yml|yaml|md|go|rs|rb):\d+")
