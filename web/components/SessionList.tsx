@@ -30,6 +30,8 @@ export function SessionList({
     // A narrow rail: one dot per session, coloured by what it's waiting on.
     return (
       <section id="session-list-pane" className="collapsed">
+        {/* Widens over the page on hover to show each session's name. */}
+        <div className="rail-inner">
         <div className="list-rail-header">
           <button type="button" className="btn-ghost rail-toggle" onClick={onToggle}
                   title="Show the session list" aria-label="Show the session list">
@@ -45,12 +47,17 @@ export function SessionList({
               key={s.id}
               type="button"
               className={"rail-item" + (s.ref === selectedRef ? " selected" : "")}
-              title={`${s.title || "(untitled)"} · ${s.status}${s.attention ? ` · ${ATTENTION_LABEL[s.attention]}` : ""}`}
+              aria-label={`${s.title || "(untitled)"} · ${s.status}${s.attention ? ` · ${ATTENTION_LABEL[s.attention]}` : ""}`}
               onClick={() => router.push(`/sessions/${s.ref}`)}
             >
               <span className={`rail-dot ${s.attention ? `attention-${s.attention}` : `rail-status-${s.status}`}`} />
+              <span className="rail-label">
+                <span className="rail-title">{s.title || "(untitled)"}</span>
+                <span className={`status status-${s.status}`}>{s.status}</span>
+              </span>
             </button>
           ))}
+        </div>
         </div>
       </section>
     );
