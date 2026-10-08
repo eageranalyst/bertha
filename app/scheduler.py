@@ -41,6 +41,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -93,6 +94,18 @@ def relevant_code(settings: Settings, repo: str, task: str) -> str:
     return files_section + code_index.format_relevant(
         code_index.top_chunks(query, cached[1], k=8, terms=terms)
     )
+
+
+PERSONA_PATH = Path(__file__).resolve().parent.parent / "images" / "agent" / "PERSONA.md"
+
+
+def persona() -> str:
+    """Bertha's character, for ask sessions' system prompt. Read each time,
+    so an edit applies to the next reply."""
+    try:
+        return PERSONA_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 def working_context(model: dict[str, Any]) -> int:
@@ -367,9 +380,9 @@ class Scheduler:
         # it again here would duplicate it.
         session = self._routed(session, session.get("pending_message") or "", "ask")
         messages = self._build_ask_messages(session["id"])
-        if not messages:
-            # Nothing to answer -- the model server rejects an empty
-            # message list, so don't call it.
+        if not any(m["role"] == "user" for m in messages):
+            # Nothing to answer -- don't call the model with only the
+            # system prompt.
             store.update_session(session["id"], status="idle", pending_message=None)
             return
         store.update_session(
@@ -395,7 +408,10 @@ class Scheduler:
         # entry (logged by whoever set pending_message) by the time this
         # runs, so the whole conversation -- including it -- just comes
         # from the log. Appending it again here would send it twice.
-        messages = []
+        # Bertha's character (images/agent/PERSONA.md), which code turns get
+        # as standing instructions too.
+        character = persona()
+        messages = [{"role": "system", "content": character}] if character else []
         for log in store.list_logs(session_id):
             if log["kind"] == "user_message":
                 messages.append({"role": "user", "content": log["content"]})

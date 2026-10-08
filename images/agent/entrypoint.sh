@@ -111,7 +111,7 @@ ${MCP_BLOCK}
     }
   },
   "tool_output": { "max_lines": 200, "max_bytes": 8192 },
-  "instructions": ["/opt/factory/WORKING.md", "${HOME}/factory/repo-context.md"],
+  "instructions": ["/opt/factory/PERSONA.md", "/opt/factory/WORKING.md", "${HOME}/factory/repo-context.md"],
   "compaction": { "auto": true, "prune": true },
   "permission": {
     "edit": "allow",
