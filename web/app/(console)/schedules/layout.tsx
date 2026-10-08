@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
-import { fmtTime } from "@/lib/format";
+import { fmtTime, statusLabel } from "@/lib/format";
 import type { Schedule } from "@/lib/types";
 
 /** The schedules list, kept mounted while the detail pane changes route. */
@@ -43,7 +43,7 @@ export default function SchedulesLayout({ children }: { children: ReactNode }) {
                   className={"session-row skill-row" + (s.id === selectedId ? " selected" : "")}>
               <div className="session-row-top">
                 <span className="session-row-title">{s.name}</span>
-                {s.last_run && <span className={`status run-${s.last_run.status}`}>{s.last_run.status.replace("_", " ")}</span>}
+                {s.last_run && <span className={`status run-${s.last_run.status}`}>{statusLabel(s.last_run.status)}</span>}
                 {!s.enabled && <span className="status status-closed">off</span>}
               </div>
               <div className="session-row-meta">

@@ -1,5 +1,6 @@
 "use client";
 
+import { statusLabel } from "@/lib/format";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { AttentionReason, Session } from "@/lib/types";
@@ -47,13 +48,13 @@ export function SessionList({
               key={s.id}
               type="button"
               className={"rail-item" + (s.ref === selectedRef ? " selected" : "")}
-              aria-label={`${s.title || "(untitled)"} · ${s.status}${s.attention ? ` · ${ATTENTION_LABEL[s.attention]}` : ""}`}
+              aria-label={`${s.title || "(untitled)"} · ${statusLabel(s.status)}${s.attention ? ` · ${ATTENTION_LABEL[s.attention]}` : ""}`}
               onClick={() => router.push(`/sessions/${s.ref}`)}
             >
               <span className={`rail-dot ${s.attention ? `attention-${s.attention}` : `rail-status-${s.status}`}`} />
               <span className="rail-label">
                 <span className="rail-title">{s.title || "(untitled)"}</span>
-                <span className={`status status-${s.status}`}>{s.status}</span>
+                <span className={`status status-${s.status}`}>{statusLabel(s.status)}</span>
               </span>
             </button>
           ))}
@@ -102,7 +103,7 @@ export function SessionList({
               )}
               <span className={`pill pill-type-${s.session_type}`}>{s.session_type}</span>
               <span className="session-row-title">{s.title || "(untitled)"}</span>
-              <span className={`status status-${s.status}`}>{s.status}</span>
+              <span className={`status status-${s.status}`}>{statusLabel(s.status)}</span>
             </div>
             <div className="session-row-meta">
               <span className="ref">{s.ref}</span>

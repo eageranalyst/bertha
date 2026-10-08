@@ -1,5 +1,6 @@
 "use client";
 
+import { statusLabel } from "@/lib/format";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { latestTodos } from "@/lib/parseAgentLog";
 import type { LogEntry, Model, Session } from "@/lib/types";
@@ -153,7 +154,7 @@ export function SessionDetail({
           {session.schedule_id != null && <ScheduleLink scheduleId={session.schedule_id} />}
         </div>
         <div id="detail-meta">
-          <span className={`status status-${session.status}`}>{session.status}</span>
+          <span className={`status status-${session.status}`}>{statusLabel(session.status)}</span>
           {session.repo ? ` · ${session.repo}` : " · no repo"}
           {session.pr_number != null ? ` · PR #${session.pr_number}` : ""}
           {` · ${pinned ? `${session.model} (pinned)` : `auto: ${session.model ?? "default"}`}`}

@@ -15,3 +15,9 @@ export function fmtTime(ts: number | null | undefined): string {
   if (!ts) return "—";
   return new Date(ts * 1000).toLocaleString();
 }
+
+/** A status as people read it: "pr_open" -> "PR open", "timed_out" -> "timed out". */
+export function statusLabel(status: string): string {
+  if (status === "pr_open") return "PR open";
+  return status.replaceAll("_", " ");
+}

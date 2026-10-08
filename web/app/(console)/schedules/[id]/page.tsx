@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { ScheduleForm } from "@/components/ScheduleForm";
 import { ApiError, api } from "@/lib/api";
-import { fmtTime } from "@/lib/format";
+import { fmtTime, statusLabel } from "@/lib/format";
 import type { Schedule, ScheduleInput, ScheduleRun } from "@/lib/types";
 
 function duration(run: ScheduleRun): string {
@@ -100,7 +100,7 @@ export default function SchedulePage() {
             {runs.map((run) => (
               <tr key={run.id}>
                 <td>{fmtTime(run.scheduled_for)}</td>
-                <td><span className={`status run-${run.status}`}>{run.status.replace("_", " ")}</span></td>
+                <td><span className={`status run-${run.status}`}>{statusLabel(run.status)}</span></td>
                 <td>{duration(run)}</td>
                 <td>{run.session_ref ? <Link href={`/sessions/${run.session_ref}`}>{run.session_ref}</Link> : "—"}</td>
                 <td className="runs-note">{run.reason ?? ""}</td>
