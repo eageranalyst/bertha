@@ -1,35 +1,82 @@
 "use client";
 
-import type { Session } from "@/lib/types";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import type { AttentionReason, Session } from "@/lib/types";
+
+const ATTENTION_LABEL: Record<AttentionReason, string> = {
+  replied: "Waiting for your reply",
+  review: "PR is open and waiting on you",
+  spec: "Spec waiting on your review",
+  failed: "The last turn failed",
+};
 
 export function SessionList({
   sessions,
-  selectedId,
+  selectedRef,
   draftActive,
-  onNewSession,
-  onSelectDraft,
-  onSelectSession,
+  collapsed,
+  onToggle,
 }: {
   sessions: Session[];
-  selectedId: number | "draft" | null;
+  selectedRef: string | null;
   draftActive: boolean;
-  onNewSession: () => void;
-  onSelectDraft: () => void;
-  onSelectSession: (id: number) => void;
+  collapsed: boolean;
+  onToggle: () => void;
 }) {
+  const router = useRouter();
+
+  if (collapsed) {
+    // A narrow rail: one dot per session, coloured by what it's waiting on.
+    return (
+      <section id="session-list-pane" className="collapsed">
+        {/* Widens over the page on hover to show each session's name. */}
+        <div className="rail-inner">
+        <div className="list-rail-header">
+          <button type="button" className="btn-ghost rail-toggle" onClick={onToggle}
+                  title="Show the session list" aria-label="Show the session list">
+            »
+          </button>
+          <Link href="/sessions/new" className="btn-primary rail-new" title="New session" aria-label="New session">
+            +
+          </Link>
+        </div>
+        <div className="session-rail">
+          {sessions.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className={"rail-item" + (s.ref === selectedRef ? " selected" : "")}
+              aria-label={`${s.title || "(untitled)"} · ${s.status}${s.attention ? ` · ${ATTENTION_LABEL[s.attention]}` : ""}`}
+              onClick={() => router.push(`/sessions/${s.ref}`)}
+            >
+              <span className={`rail-dot ${s.attention ? `attention-${s.attention}` : `rail-status-${s.status}`}`} />
+              <span className="rail-label">
+                <span className="rail-title">{s.title || "(untitled)"}</span>
+                <span className={`status status-${s.status}`}>{s.status}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section id="session-list-pane">
       <div className="list-pane-header">
-        <button type="button" className="btn-primary btn-block" onClick={onNewSession}>
+        <Link href="/sessions/new" className="btn-primary btn-block">
           + New session
+        </Link>
+        <button type="button" className="btn-ghost list-toggle" onClick={onToggle}
+                title="Collapse the session list" aria-label="Collapse the session list">
+          «
         </button>
       </div>
       <div id="session-rows">
         {draftActive && (
-          <div
-            className={"session-row is-draft" + (selectedId === "draft" ? " selected" : "")}
-            onClick={onSelectDraft}
-          >
+          <div className="session-row is-draft selected">
             <div className="session-row-top">
               <span className="session-row-title">New session</span>
             </div>
@@ -41,10 +88,18 @@ export function SessionList({
         {sessions.map((s) => (
           <div
             key={s.id}
-            className={"session-row" + (s.id === selectedId ? " selected" : "")}
-            onClick={() => onSelectSession(s.id)}
+            className={"session-row" + (s.ref === selectedRef ? " selected" : "")}
+            onClick={() => router.push(`/sessions/${s.ref}`)}
           >
             <div className="session-row-top">
+              {s.attention && (
+                <span
+                  className={`attention-dot attention-${s.attention}`}
+                  title={ATTENTION_LABEL[s.attention]}
+                  role="img"
+                  aria-label={ATTENTION_LABEL[s.attention]}
+                />
+              )}
               <span className={`pill pill-type-${s.session_type}`}>{s.session_type}</span>
               <span className="session-row-title">{s.title || "(untitled)"}</span>
               <span className={`status status-${s.status}`}>{s.status}</span>

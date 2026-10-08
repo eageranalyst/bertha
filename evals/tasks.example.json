@@ -1,0 +1,31 @@
+[
+  {
+    "id": "repo-layout",
+    "repo": "your-org/your-repo",
+    "prompt": "List the top-level folders of the repository and what each is for, one line each. Don't change any files.",
+    "checks": [
+      {"no_changes": true},
+      {"reply_contains": "\\bsrc\\b"},
+      {"reply_contains": "\\btests?\\b"}
+    ]
+  },
+  {
+    "id": "code-question",
+    "repo": "your-org/your-repo",
+    "prompt": "How does the app load its configuration? Name the module and the main functions. Don't change any files.",
+    "checks": [
+      {"no_changes": true},
+      {"reply_contains": "config"}
+    ]
+  },
+  {
+    "id": "fix-broken-image",
+    "repo": "your-org/your-repo",
+    "prompt": "The image at the bottom of the product card isn't loading",
+    "checks": [
+      {"changed": "src/components/ProductCard.*"},
+      {"diff_contains": "(?i)img|image"},
+      {"command": "npm test"}
+    ]
+  }
+]

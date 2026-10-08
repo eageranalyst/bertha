@@ -3,6 +3,11 @@ __pycache__/
 .env
 data/*.db
 data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+evals/results/
+# Your own eval tasks name your repos; evals/tasks.example.json shows the shape.
+evals/tasks.json
 .venv/
 venv/
 

@@ -28,7 +28,19 @@ export interface TextEvent {
   text: string;
 }
 
-export type AgentEvent = ToolEvent | TextEvent;
+/** OpenCode's summary when it compacts a long conversation to free context. */
+export interface CompactionEvent {
+  type: "compaction";
+  text: string;
+}
+
+export type AgentEvent = ToolEvent | TextEvent | CompactionEvent;
+
+// OpenCode doesn't mark compaction summaries, but always writes them from one
+// fixed template; these headings together only appear in that.
+export function isCompactionSummary(text: string): boolean {
+  return text.startsWith("## Objective") && text.includes("## Work State") && text.includes("## Next Move");
+}
 
 export type AgentLogSegment = { kind: "plain"; text: string } | { kind: "event"; event: AgentEvent };
 
@@ -78,7 +90,10 @@ export function parseAgentLog(raw: string): AgentLogSegment[] {
         const text = ((obj as { part?: { text?: string } }).part?.text ?? "").trim();
         if (!text) continue; // empty text event, drop entirely
         flushPlain();
-        segments.push({ kind: "event", event: { type: "text", text } });
+        segments.push({
+          kind: "event",
+          event: isCompactionSummary(text) ? { type: "compaction", text } : { type: "text", text },
+        });
         continue;
       }
       if (type === "tool_use") {
