@@ -201,6 +201,8 @@ export interface WikiScan {
   data_files: string[];
   test_files: string[];
   entrypoints: string[];
+  top_dirs?: { name: string; files: number }[];
+  tooling?: string[];
 }
 
 export interface WikiIndex {
@@ -248,6 +250,8 @@ export interface GitHubRepoInfo {
   html_url: string;
   pushed_at: number | null;
   open_issues: number;
+  /** null when the token can't tell. */
+  default_branch_protected?: boolean | null;
 }
 
 export interface Skill {
