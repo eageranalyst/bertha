@@ -123,6 +123,9 @@ BUSY_OR_QUEUED = {"running", "queued"}
 CI_FIX_ATTEMPTS = 2
 # A push with no checks after this long is taken as a repo without CI.
 CI_GRACE_SECONDS = 600
+# Review rounds per session: QC re-reviews Bertha's fixes to its findings
+# until it passes or this many reviews have run.
+MAX_REVIEW_ROUNDS = 3
 # How often a closed-PR check (for review notes) and a merged-PR check (for
 # wiki freshness) may call GitHub, per session and per repo.
 CONTEXT_CHECK_SECONDS = 600
@@ -680,6 +683,9 @@ class Scheduler:
                 self._after_review(store.get_session(session["id"]) or session, logs)
             except Exception:
                 logger.exception("failed handling review session %s", session["id"])
+        elif session.get("review_fix_pending"):
+            self._after_review_fix(store.get_session(session["id"]) or session,
+                                   pushed=new_status == "pr_open" and "FACTORY_PUSHED=1" in logs)
         elif new_status == "pr_open" and "FACTORY_PUSHED=1" in logs and self._auto_review_due(session):
             try:
                 self.start_review(store.get_session(session["id"]) or session, by="automatic review")
@@ -1002,7 +1008,27 @@ class Scheduler:
         )
         pending = parent.get("pending_message")
         store.set_pending_message(parent["id"], f"{pending}\n\n{message}" if pending else message)
+        store.update_session(parent["id"], review_fix_pending=1)
         store.append_log(parent["id"], "review_findings", message)
+
+    def _after_review_fix(self, session: dict[str, Any], pushed: bool) -> None:
+        """Bertha's turn fixing QC's findings has finished. A pushed fix is
+        reviewed again, up to MAX_REVIEW_ROUNDS reviews, since a fix can
+        bring its own bugs; a turn that pushed nothing (she disputed the
+        findings, say) isn't."""
+        store.update_session(session["id"], review_fix_pending=0)
+        if not pushed:
+            return
+        rounds = session.get("reviews_run") or 0
+        if rounds >= MAX_REVIEW_ROUNDS:
+            store.append_log(session["id"], "system",
+                             f"QC has reviewed PR #{session['pr_number']} {rounds} times, so Bertha's latest fixes "
+                             "aren't reviewed again automatically. Run code review for another pass.")
+            return
+        try:
+            self.start_review(session, by=f"re-review of Bertha's fixes, round {rounds + 1} of {MAX_REVIEW_ROUNDS}")
+        except Exception:
+            logger.exception("failed re-reviewing session %s", session["id"])
 
     # -- agent context: notes from sessions, wiki freshness (app/agent_context.py)
 
@@ -1270,14 +1296,20 @@ SEVERITIES = ("high", "medium", "low")
 
 
 def parse_review(message: str) -> dict[str, Any] | None:
-    """QC's report: the last fenced JSON block in its final message, with
-    the findings checked over. None if there isn't a usable one."""
-    blocks = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", message, re.S)
-    for block in reversed(blocks):
+    """QC's report: the last JSON object with a findings list in its final
+    message, with the findings checked over. Usually a fenced block, but a
+    model can end it badly (an unclosed fence, stray tool-call markup), so
+    any parseable object counts. None if there isn't a usable one."""
+    decoder = json.JSONDecoder()
+    candidates = []
+    for start in [m.start() for m in re.finditer(r"\{", message)]:
         try:
-            data = json.loads(block)
+            data, _end = decoder.raw_decode(message, start)
         except ValueError:
             continue
+        if isinstance(data, dict) and "findings" in data:
+            candidates.append(data)
+    for data in reversed(candidates):
         if not isinstance(data, dict) or not isinstance(data.get("findings", []), list):
             continue
         findings = []

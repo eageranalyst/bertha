@@ -333,6 +333,9 @@ def _add_missing_session_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE sessions ADD COLUMN review_of INTEGER")
         conn.execute("ALTER TABLE sessions ADD COLUMN review_session_id INTEGER")
         conn.execute("ALTER TABLE sessions ADD COLUMN reviews_run INTEGER NOT NULL DEFAULT 0")
+    if "review_fix_pending" not in {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}:
+        # 1 while Bertha's next turn is fixing QC's findings: its push gets reviewed again.
+        conn.execute("ALTER TABLE sessions ADD COLUMN review_fix_pending INTEGER NOT NULL DEFAULT 0")
     repo_cols = {row[1] for row in conn.execute("PRAGMA table_info(repos)").fetchall()}
     if "auto_review" not in repo_cols:
         # 1: QC reviews a session's pull request once Bertha first pushes to it.
@@ -544,6 +547,7 @@ _ALLOWED_FIELDS = {
     "review_of",
     "review_session_id",
     "reviews_run",
+    "review_fix_pending",
 }
 
 

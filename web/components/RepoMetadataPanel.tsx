@@ -199,8 +199,8 @@ export function RepoMetadataPanel({ repoId }: { repoId: number }) {
           <span>
             Review every session&apos;s pull request automatically. When Bertha first pushes to a PR, QC (the
             factory&apos;s quality control) reviews it in its own session, posts what it finds on the PR, and
-            Bertha fixes the findings straight away. Off, each session with a PR has a Run code review button
-            instead.
+            Bertha fixes the findings straight away. QC checks her fixes too, up to three reviews per
+            session. Off, each session with a PR has a Run code review button instead.
           </span>
         </label>
       </section>

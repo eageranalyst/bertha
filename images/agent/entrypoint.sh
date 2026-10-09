@@ -184,6 +184,14 @@ else
     fi
 fi
 
+# A review's scratch space for throwaway tests: inside the checkout, because
+# the agent can't touch files outside it, and ignored by git. A review
+# session never pushes, so none of it leaves the container.
+if [ -n "$REPO" ] && [ -n "${REVIEW_OF_PR:-}" ]; then
+    mkdir -p /data/repo/.qc
+    grep -qx '.qc/' /data/repo/.git/info/exclude 2>/dev/null || echo '.qc/' >> /data/repo/.git/info/exclude
+fi
+
 # A repo turn is one shot: nobody answers questions while the agent works,
 # so the instructions say to finish the task in this run and state what was
 # done. The final message is reused as the pull request description.
@@ -195,7 +203,7 @@ if [ -n "$REPO" ] && [ "${SPEC_MODE:-}" = "draft" ]; then
 elif [ -n "$REPO" ] && [ -n "${REVIEW_OF_PR:-}" ]; then
     # A code review (QC): someone else's change, checked out read-only. Bertha
     # wrote the task; nothing this turn changes is pushed (NO_PUSH).
-    MESSAGE="You are reviewing pull request #$REVIEW_OF_PR, checked out in /data/repo on its branch $BRANCH_NAME. Review it with the bertha-review skill: load it with the skill tool and follow it. Don't change any files: you inspect, and Bertha fixes what you find.
+    MESSAGE="You are reviewing pull request #$REVIEW_OF_PR, checked out in /data/repo on its branch $BRANCH_NAME. Review it with the bertha-review skill: load it with the skill tool and follow every step. Don't change the repository's files; throwaway tests to prove a finding go in /data/repo/.qc/, which git ignores. You inspect, and Bertha fixes what you find.
 
 $PROMPT"
 elif [ -n "$REPO" ]; then
