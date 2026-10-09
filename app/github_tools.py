@@ -439,7 +439,8 @@ def check_runs(client: httpx.Client, repo: str, sha: str) -> list[dict[str, Any]
     is what CI is in most repos. A job's id is also its log's id."""
     response = client.get(f"/repos/{repo}/commits/{sha}/check-runs", params={"per_page": 100})
     if response.status_code != 403:
-        return [{"id": r["id"], "name": r["name"], "status": r["status"], "conclusion": r["conclusion"]}
+        return [{"id": r["id"], "name": r["name"], "status": r["status"], "conclusion": r["conclusion"],
+                 "url": r.get("html_url")}
                 for r in _check(response).get("check_runs", [])]
     runs = client.get(f"/repos/{repo}/actions/runs", params={"head_sha": sha, "per_page": 50})
     if runs.status_code == 403:
@@ -448,7 +449,7 @@ def check_runs(client: httpx.Client, repo: str, sha: str) -> list[dict[str, Any]
     for run in _check(runs).get("workflow_runs", []):
         listed = _check(client.get(f"/repos/{repo}/actions/runs/{run['id']}/jobs", params={"per_page": 100}))
         jobs += [{"id": j["id"], "name": f"{run['name']} / {j['name']}", "status": j["status"],
-                  "conclusion": j["conclusion"]} for j in listed.get("jobs", [])]
+                  "conclusion": j["conclusion"], "url": j.get("html_url")} for j in listed.get("jobs", [])]
     return jobs
 
 
@@ -514,6 +515,36 @@ def job_log(client: httpx.Client, repo: str, job_id: int) -> str:
     if response.status_code >= 400:
         return f"Couldn't get the log (GitHub returned {response.status_code})."
     return _log_tail(response.text)
+
+
+# The session view polls CI; GitHub is asked at most this often per PR.
+CI_SUMMARY_TTL_SECONDS = 20
+_ci_summaries: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
+
+
+def ci_summary(repo: str, number: int) -> dict[str, Any]:
+    """A pull request's state and its CI checks, for the session view. No
+    logs, and cached briefly, since the view polls it."""
+    import time
+
+    cached = _ci_summaries.get((repo, number))
+    if cached and time.monotonic() - cached[0] < CI_SUMMARY_TTL_SECONDS:
+        return cached[1]
+    with _client() as client:
+        pr = _check(client.get(f"/repos/{repo}/pulls/{number}"))
+        ci_error = None
+        try:
+            checks = check_runs(client, repo, pr["head"]["sha"])
+        except ToolError as exc:
+            checks, ci_error = [], str(exc)
+    summary = {
+        "number": number, "url": pr["html_url"], "state": pr["state"], "merged": bool(pr.get("merged")),
+        "draft": pr["draft"], "sha": pr["head"]["sha"],
+        "ci": "unavailable" if ci_error else ci_state(checks), "ci_error": ci_error,
+        "checks": sorted(checks, key=lambda c: (c["conclusion"] not in FAILED_CONCLUSIONS, c["name"])),
+    }
+    _ci_summaries[(repo, number)] = (time.monotonic(), summary)
+    return summary
 
 
 def ci_failure_report(repo: str, number: int) -> dict[str, Any]:

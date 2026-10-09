@@ -10,6 +10,7 @@ import { GitHubChanges } from "./GitHubChanges";
 import { ScheduleLink } from "./ScheduleLink";
 import { SpecPanel } from "./SpecPanel";
 import { TodoFloat } from "./TodoList";
+import { CiStatus } from "./CiStatus";
 import {
   MessageRow,
   MessageBubble,
@@ -156,12 +157,13 @@ export function SessionDetail({
         <div id="detail-meta">
           <span className={`status status-${session.status}`}>{statusLabel(session.status)}</span>
           {session.repo ? ` · ${session.repo}` : " · no repo"}
-          {session.pr_number != null ? ` · PR #${session.pr_number}` : ""}
           {` · ${pinned ? `${session.model} (pinned)` : `auto: ${session.model ?? "default"}`}`}
           {` · ${session.turn_count} turn${session.turn_count === 1 ? "" : "s"}`}
           {` · ${fmtTime(session.last_activity_at)}`}
         </div>
       </div>
+
+      <CiStatus sessionId={session.id} prNumber={session.pr_number} />
 
       <div id="detail-actions">
         <label className="model-select">

@@ -12,6 +12,7 @@ import type {
   ContextNote,
   SecurityStatus,
   Session,
+  SessionCi,
   SessionSpec,
   SessionType,
   Skill,
@@ -69,6 +70,7 @@ export const api = {
   getSessionByRef: (ref: string) =>
     request<Session>(`/api/sessions/by-ref/${encodeURIComponent(ref)}`),
   getLogs: (id: number) => request<LogEntry[]>(`/api/sessions/${id}/logs`),
+  getSessionCi: (id: number) => request<SessionCi>(`/api/sessions/${id}/ci`),
   /** Server-sent events for one session: a snapshot, then each change. */
   sessionEventsUrl: (id: number) => `${API_ORIGIN}/api/sessions/${id}/events`,
   listRepos: () => request<Repo[]>("/api/repos"),

@@ -312,6 +312,18 @@ def api_session_events(session_id: int, request: Request):
     )
 
 
+@app.get("/api/sessions/{session_id}/ci")
+def api_session_ci(session_id: int):
+    """The session's pull request and its CI checks; {"pr": null} without one."""
+    session = _get_or_404(session_id)
+    if not session["pr_number"] or not session["repo"]:
+        return {"pr": None}
+    try:
+        return {"pr": github_tools.ci_summary(session["repo"], session["pr_number"])}
+    except github_tools.ToolError as exc:
+        return {"pr": None, "error": str(exc)}
+
+
 @app.post("/api/sessions/{session_id}/message")
 def api_send_message(session_id: int, body: MessageIn):
     _get_or_404(session_id)

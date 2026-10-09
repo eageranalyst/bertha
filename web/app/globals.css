@@ -1008,3 +1008,48 @@ code.hljs { padding: 3px 5px; }
 .save-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
 .save-bar-status { font-size: 12.5px; color: var(--text-dim); }
 .save-bar-status.unsaved { color: var(--warn); font-weight: 500; }
+
+/* -- CI bar: the session's pull request and its checks ------------------- */
+
+.ci-bar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; font-size: 12.5px; }
+.ci-pr { font-weight: 600; color: var(--text); text-decoration: none; }
+a.ci-pr:hover { text-decoration: underline; }
+.ci-note { color: var(--text-faint); }
+.ci-pr-state { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.03em; padding: 1px 7px; border-radius: 999px; background: var(--muted-soft); color: var(--muted); }
+.ci-pr-merged { background: var(--purple-soft); color: var(--purple); }
+.ci-pr-open { background: var(--ok-soft); color: var(--ok); }
+.ci-pr-closed { background: var(--neutral-soft); color: var(--text-faint); }
+.ci-pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; font-size: 12.5px;
+  border-radius: 999px; background: var(--bg-raised); color: var(--text-dim); border: 1px solid var(--border-soft);
+}
+.ci-pill:disabled { opacity: 1; cursor: default; }
+.ci-pill:hover:not(:disabled) { border-color: var(--border); color: var(--text); }
+.ci-passed { color: var(--ok); }
+.ci-failed { color: var(--danger); border-color: var(--danger-border); }
+.ci-pending { color: var(--warn); }
+.ci-detail { color: var(--text-faint); }
+.ci-mark { width: 14px; height: 14px; flex-shrink: 0; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.ci-mark.passed circle { fill: var(--ok); stroke: var(--ok); }
+.ci-mark.passed path { stroke: var(--bg-raised); stroke-width: 2; }
+.ci-mark.failed circle { fill: var(--danger); stroke: var(--danger); }
+.ci-mark.failed path { stroke: var(--bg-raised); stroke-width: 2; }
+.ci-mark.pending { stroke: var(--warn); }
+.ci-mark.pending circle { stroke: var(--border); }
+.ci-mark.quiet { stroke: var(--text-faint); }
+@media (prefers-reduced-motion: no-preference) {
+  .ci-mark.pending { animation: ci-spin 1s linear infinite; }
+}
+@keyframes ci-spin { to { transform: rotate(360deg); } }
+.ci-checks {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 6; list-style: none; margin: 0; padding: 6px;
+  min-width: 300px; max-width: min(520px, 100%); max-height: 320px; overflow-y: auto;
+  background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 8px 24px var(--shadow-soft);
+}
+.ci-check { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; }
+.ci-check:hover { background: var(--bg-sunken); }
+.ci-check a { color: var(--text); text-decoration: none; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ci-check a:hover { text-decoration: underline; }
+.ci-check-result { color: var(--text-faint); font-size: 11.5px; }
+.ci-check-failed .ci-check-result { color: var(--danger); }

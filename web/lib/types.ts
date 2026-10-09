@@ -305,3 +305,27 @@ export interface ContextNote {
   updated_at: number;
   reviewed_at: number | null;
 }
+
+export interface CiCheck {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  url: string | null;
+}
+
+/** A session's pull request and its CI, from /api/sessions/{id}/ci. */
+export interface SessionCi {
+  pr: {
+    number: number;
+    url: string;
+    state: "open" | "closed";
+    merged: boolean;
+    draft: boolean;
+    sha: string;
+    ci: "passed" | "failed" | "pending" | "none" | "unavailable";
+    ci_error: string | null;
+    checks: CiCheck[];
+  } | null;
+  error?: string;
+}
