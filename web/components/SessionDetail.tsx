@@ -11,6 +11,7 @@ import { ScheduleLink } from "./ScheduleLink";
 import { SpecPanel } from "./SpecPanel";
 import { TodoFloat } from "./TodoList";
 import { CiStatus } from "./CiStatus";
+import { ReviewControl, ReviewOf } from "./ReviewControl";
 import {
   MessageRow,
   MessageBubble,
@@ -24,9 +25,11 @@ function fmtTime(ts: number | null | undefined) {
   return new Date(ts * 1000).toLocaleString();
 }
 
-function speakerFor(kind: string, content: string): { role: Role; label: string } {
-  if (kind === "user_message") return { role: "user", label: "You" };
+function speakerFor(kind: string, content: string, qc: boolean): { role: Role; label: string; avatar?: Role } {
+  // In a review session the task comes from Bertha: on the asking side, with her face.
+  if (kind === "user_message") return qc ? { role: "user", label: "Bertha", avatar: "agent" } : { role: "user", label: "You" };
   if (kind === "ask_response") return { role: "agent", label: "Bertha" };
+  if (kind === "review_findings") return { role: "qc", label: "QC" };
   if (kind === "ci_failure") return { role: "reviewer", label: "CI failed" };
   if (kind === "pr_comment") {
     const author = content.match(/^@(\S+):/)?.[1];
@@ -62,6 +65,8 @@ export function SessionDetail({
   onAbandonSpec: () => Promise<void>;
 }) {
   const pinned = session.model_pinned === 1;
+  // A code review session: QC speaks, and Bertha wrote its task.
+  const isReview = Boolean(session.review_of);
   const enabledModels = models.filter((m) => m.enabled);
   // A pinned model that has since been disabled still shows, so the select stays honest.
   const modelOptions = [
@@ -153,6 +158,7 @@ export function SessionDetail({
           <span className="ref">{session.ref}</span>
           <h2>{session.title || "(untitled)"}</h2>
           {session.schedule_id != null && <ScheduleLink scheduleId={session.schedule_id} />}
+          <ReviewOf session={session} />
         </div>
         <div id="detail-meta">
           <span className={`status status-${session.status}`}>{statusLabel(session.status)}</span>
@@ -164,6 +170,7 @@ export function SessionDetail({
       </div>
 
       <CiStatus sessionId={session.id} prNumber={session.pr_number} />
+      <ReviewControl session={session} />
 
       <div id="detail-actions">
         <label className="model-select">
@@ -216,11 +223,11 @@ export function SessionDetail({
             return <SystemDivider key={l.id} time={time} content={l.content} />;
           }
           if (l.kind === "agent_output") {
-            return <AgentOutputLog key={l.id} content={l.content} time={time} />;
+            return <AgentOutputLog key={l.id} content={l.content} time={time} qc={isReview} />;
           }
-          const { role, label } = speakerFor(l.kind, l.content);
+          const { role, label, avatar } = speakerFor(l.kind, l.content, isReview);
           return (
-            <MessageRow key={l.id} role={role} label={label} time={time}>
+            <MessageRow key={l.id} role={role} label={label} time={time} avatar={avatar}>
               <MessageBubble>
                 <Markdown>{l.content}</Markdown>
               </MessageBubble>
@@ -235,7 +242,7 @@ export function SessionDetail({
           </MessageRow>
         )}
         {(session.status === "running" || session.status === "queued") && (
-          <WorkingIndicator since={workingSince} queued={session.status === "queued"} />
+          <WorkingIndicator since={workingSince} queued={session.status === "queued"} qc={isReview} />
         )}
         </div>
       </div>

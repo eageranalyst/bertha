@@ -312,6 +312,19 @@ def api_session_events(session_id: int, request: Request):
     )
 
 
+@app.post("/api/sessions/{session_id}/review")
+def api_start_review(session_id: int):
+    """QC reviews this session's pull request, in a new session."""
+    session = _get_or_404(session_id)
+    if session.get("review_of"):
+        raise HTTPException(400, "this is a review session; review the session it checked instead")
+    scheduler: Scheduler = _state["scheduler"]  # type: ignore[assignment]
+    try:
+        return scheduler.start_review(session, by="you")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
 @app.get("/api/sessions/{session_id}/ci")
 def api_session_ci(session_id: int):
     """The session's pull request and its CI checks; {"pr": null} without one."""
@@ -638,6 +651,17 @@ def api_delete_skill(skill_id: int):
 def api_repo_skills(repo_id: int):
     repo = _repo_or_404(repo_id)
     return store.library_for_repo(repo["full_name"])
+
+
+class AutoReviewIn(BaseModel):
+    on: bool
+
+
+@app.put("/api/repos/{repo_id}/auto-review")
+def api_set_auto_review(repo_id: int, body: AutoReviewIn):
+    _repo_or_404(repo_id)
+    store.set_repo_auto_review(repo_id, body.on)
+    return store.get_repo(repo_id)
 
 
 @app.put("/api/repos/{repo_id}/skills/{skill_id}")

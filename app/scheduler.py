@@ -38,6 +38,7 @@ Session lifecycle:
 import base64
 import json
 import logging
+import re
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
@@ -510,6 +511,8 @@ class Scheduler:
             "LOCAL_MODEL_KEY": self.settings.local_model_key,
             "LOCAL_MODEL_ID": self.settings.local_model_id,
             "NO_PUSH": "1" if session.get("dry_run") else "",
+            # A code review session speaks as QC and reviews its parent's PR.
+            **self._review_env(session),
             **self._github_tools_env(session),
             "BOT_NAME": self.settings.bot_name,
             "BOT_EMAIL": self.settings.bot_email,
@@ -672,6 +675,16 @@ class Scheduler:
                 self._after_spec_turn(store.get_session(session["id"]), logs, new_status)
             except Exception:
                 logger.exception("failed updating the spec PR for session %s", session["id"])
+        if session.get("review_of"):
+            try:
+                self._after_review(store.get_session(session["id"]) or session, logs)
+            except Exception:
+                logger.exception("failed handling review session %s", session["id"])
+        elif new_status == "pr_open" and "FACTORY_PUSHED=1" in logs and self._auto_review_due(session):
+            try:
+                self.start_review(store.get_session(session["id"]) or session, by="automatic review")
+            except Exception:
+                logger.exception("failed starting a review for session %s", session["id"])
         if new_status == "failed" and "FACTORY_CONTEXT_TOO_SMALL=1" in logs:
             self._retry_on_another_model(
                 store.get_session(session["id"]),
@@ -895,6 +908,101 @@ class Scheduler:
                                  report["state"], "CI has no checks")
                              + f"; PR #{session['pr_number']} is marked ready for review")
             self._spec_pr_update(session, "built_unchecked" if report["state"] == "unchecked" else "built")
+
+    # -- code review: QC checks Bertha's pull request in its own session -----
+
+    def _review_env(self, session: dict[str, Any]) -> dict[str, str]:
+        if not session.get("review_of"):
+            return {}
+        parent = store.get_session(session["review_of"]) or {}
+        return {"PERSONA_FILE": "QC.md", "REVIEW_OF_PR": str(parent.get("pr_number") or "")}
+
+    def _auto_review_due(self, session: dict[str, Any]) -> bool:
+        """Once per session, after Bertha first pushes to its PR, when the
+        repo has automatic review on. Her fixes aren't re-reviewed."""
+        repo = store.get_repo_by_name(session["repo"]) if session.get("repo") else None
+        return bool(repo and repo.get("auto_review") and not session.get("reviews_run")
+                    and not session.get("dry_run") and session.get("spec_phase") not in ("drafting", "review"))
+
+    def review_in_progress(self, session: dict[str, Any]) -> bool:
+        review = store.get_session(session["review_session_id"]) if session.get("review_session_id") else None
+        return bool(review and review["status"] in BUSY_OR_QUEUED)
+
+    def start_review(self, session: dict[str, Any], by: str) -> dict[str, Any]:
+        """A new session in which QC reviews this session's PR: its own
+        container and conversation, read-only, ideally on a different model
+        from the one that wrote the change. Returns the review session."""
+        if not session.get("pr_number") or not session.get("repo") or not session.get("branch_name"):
+            raise ValueError("this session has no pull request to review")
+        if self.review_in_progress(session):
+            raise ValueError("a review of this pull request is already running")
+        base = "the default branch"
+        try:
+            with github_tools._client() as client:
+                pr = github_tools._check(client.get(f"/repos/{session['repo']}/pulls/{session['pr_number']}"))
+            base = pr["base"]["ref"]
+        except Exception:
+            logger.warning("couldn't read PR #%s's base branch", session["pr_number"])
+        prompt = (
+            f"Pull request #{session['pr_number']} in {session['repo']}, branch {session['branch_name']}, "
+            f"base branch {base} (diff it against origin/{base}).\n\n"
+            f"The task it was built for:\n\n{self._original_task(session)}"
+        )
+        review_id = store.create_session(
+            session_type="code", repo=session["repo"], title=f"Review of PR #{session['pr_number']}",
+            branch_name=session["branch_name"], pending_message=prompt, model=self._reviewer_model(session),
+            model_pinned=True, dry_run=True,
+        )
+        store.update_session(review_id, review_of=session["id"])
+        store.append_log(review_id, "system", f"Started by {by}: QC reviews PR #{session['pr_number']}")
+        store.append_log(review_id, "user_message", prompt)
+        review = store.get_session(review_id) or {}
+        store.update_session(session["id"], review_session_id=review_id,
+                             reviews_run=(session.get("reviews_run") or 0) + 1)
+        store.append_log(session["id"], "system",
+                         f"QC is reviewing PR #{session['pr_number']} in session {review.get('ref')} ({by})")
+        return review
+
+    def _reviewer_model(self, session: dict[str, Any]) -> str | None:
+        """For a second opinion, the strongest enabled model that didn't write
+        the change, as long as it's no weaker than the one that did; otherwise
+        the strongest enabled model, which may be the same one (the review is
+        still its own session and conversation)."""
+        order = {"strong": 0, "standard": 1, "light": 2}
+        enabled = sorted((m for m in store.list_models() if m["enabled"]), key=lambda m: order.get(m["tier"], 3))
+        author = next((m for m in enabled if m["key"] == session.get("model")), None)
+        floor = order.get(author["tier"], 3) if author else 3
+        others = [m for m in enabled if m["key"] != session.get("model") and order.get(m["tier"], 3) <= floor]
+        chosen = (others or enabled or [None])[0]
+        return chosen["key"] if chosen else session.get("model")
+
+    def _after_review(self, review: dict[str, Any], logs: str) -> None:
+        """Posts QC's findings on the reviewed PR, and sets Bertha to fix them."""
+        parent = store.get_session(review["review_of"])
+        if not parent or not parent.get("pr_number"):
+            return
+        number = parent["pr_number"]
+        report = parse_review(_final_message(logs))
+        if report is None:
+            store.append_log(parent["id"], "system",
+                             f"QC's review (session {review['ref']}) ended without a report, so nothing was posted")
+            return
+        findings = report["findings"]
+        try:
+            self.gh.comment_pr(parent["repo"], number, review_comment(parent, report))
+        except Exception:
+            logger.exception("failed posting QC's review on PR #%s", number)
+        if not findings:
+            store.append_log(parent["id"], "system", f"QC passed PR #{number}: {report['summary']}")
+            return
+        message = (
+            f"QC reviewed PR #{number} and found {len(findings)} problem{'s' if len(findings) != 1 else ''}. "
+            "Fix each one, run the checks again, and push. If a finding is wrong, don't change code for it: "
+            "say why in your report.\n\n" + format_findings(parent, findings)
+        )
+        pending = parent.get("pending_message")
+        store.set_pending_message(parent["id"], f"{pending}\n\n{message}" if pending else message)
+        store.append_log(parent["id"], "review_findings", message)
 
     # -- agent context: notes from sessions, wiki freshness (app/agent_context.py)
 
@@ -1156,6 +1264,78 @@ def _stream_deltas(lines: Iterable[str]) -> Iterator[str]:
         content = (choices[0].get("delta") or {}).get("content") if choices else None
         if content:
             yield content
+
+
+SEVERITIES = ("high", "medium", "low")
+
+
+def parse_review(message: str) -> dict[str, Any] | None:
+    """QC's report: the last fenced JSON block in its final message, with
+    the findings checked over. None if there isn't a usable one."""
+    blocks = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", message, re.S)
+    for block in reversed(blocks):
+        try:
+            data = json.loads(block)
+        except ValueError:
+            continue
+        if not isinstance(data, dict) or not isinstance(data.get("findings", []), list):
+            continue
+        findings = []
+        for f in data.get("findings") or []:
+            if not isinstance(f, dict) or not str(f.get("title") or "").strip():
+                continue
+            severity = str(f.get("severity") or "medium").lower()
+            line = f.get("line")
+            findings.append({
+                "severity": severity if severity in SEVERITIES else "medium",
+                "file": str(f.get("file") or "").strip(),
+                "line": int(line) if isinstance(line, (int, float)) or str(line).isdigit() else None,
+                "title": str(f["title"]).strip()[:200],
+                "detail": str(f.get("detail") or "").strip()[:2000],
+                "suggestion": str(f.get("suggestion") or "").strip()[:1000],
+            })
+        findings.sort(key=lambda f: SEVERITIES.index(f["severity"]))
+        checks = [str(c) for c in data.get("checks_run") or [] if str(c).strip()]
+        return {"summary": str(data.get("summary") or "").strip()[:1000], "checks_run": checks[:20],
+                "findings": findings}
+    return None
+
+
+def _where(session: dict[str, Any], finding: dict[str, Any]) -> str:
+    if not finding["file"]:
+        return ""
+    label = f"{finding['file']}:{finding['line']}" if finding["line"] else finding["file"]
+    anchor = f"#L{finding['line']}" if finding["line"] else ""
+    url = f"https://github.com/{session['repo']}/blob/{session['branch_name']}/{finding['file']}{anchor}"
+    return f"[`{label}`]({url})"
+
+
+def format_findings(session: dict[str, Any], findings: list[dict[str, Any]]) -> str:
+    lines = []
+    for i, f in enumerate(findings, 1):
+        where = _where(session, f)
+        lines.append(f"{i}. **{f['severity']}**: {f['title']}" + (f" ({where})" if where else ""))
+        if f["detail"]:
+            lines.append(f"   {f['detail']}")
+        if f["suggestion"]:
+            lines.append(f"   *Fix:* {f['suggestion']}")
+    return "\n".join(lines)
+
+
+def review_comment(session: dict[str, Any], report: dict[str, Any]) -> str:
+    """QC's review, as posted on the pull request."""
+    findings = report["findings"]
+    head = ("**QC review: passed.**" if not findings else
+            f"**QC review: {len(findings)} finding{'s' if len(findings) != 1 else ''}.** Bertha is fixing "
+            f"{'them' if len(findings) != 1 else 'it'} now.")
+    parts = [head]
+    if report["summary"]:
+        parts.append(report["summary"])
+    if findings:
+        parts.append(format_findings(session, findings))
+    if report["checks_run"]:
+        parts.append("Checks run: " + ", ".join(f"`{c}`" for c in report["checks_run"]))
+    return "\n\n".join(parts)
 
 
 def _final_message(logs: str) -> str:

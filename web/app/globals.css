@@ -1053,3 +1053,22 @@ a.ci-pr:hover { text-decoration: underline; }
 .ci-check a:hover { text-decoration: underline; }
 .ci-check-result { color: var(--text-faint); font-size: 11.5px; }
 .ci-check-failed .ci-check-result { color: var(--danger); }
+
+/* -- code review: QC's avatar, the review button, review sessions -------- */
+
+.qc-mark { width: 20px; height: 20px; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.qc-board { fill: var(--amber-soft); stroke: var(--amber); stroke-width: 1.8; }
+.qc-clip { fill: var(--bg-raised); stroke: var(--text-dim); stroke-width: 1.6; }
+.qc-tick { stroke: var(--ok); stroke-width: 2.4; }
+.msg-avatar-qc { background: var(--amber-soft); }
+.msg-avatar-qc .qc-mark { width: 18px; height: 18px; }
+.msg-qc .msg-label { color: var(--amber); }
+.review-control { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; font-size: 12.5px; }
+.review-button { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; }
+.review-button .qc-mark { width: 16px; height: 16px; }
+.review-link { color: var(--text-dim); }
+.review-error { color: var(--danger); }
+.review-of { margin-top: 6px; font-size: 12.5px; line-height: 1.5; color: var(--text-dim); max-width: 640px; }
+.review-of .qc-mark { width: 16px; height: 16px; vertical-align: -3px; margin-right: 4px; }
+.auto-review { align-items: flex-start; max-width: 680px; font-size: 13px; line-height: 1.5; color: var(--text-dim); }
+.auto-review input { margin-top: 3px; }

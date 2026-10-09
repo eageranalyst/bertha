@@ -71,6 +71,10 @@ export const api = {
     request<Session>(`/api/sessions/by-ref/${encodeURIComponent(ref)}`),
   getLogs: (id: number) => request<LogEntry[]>(`/api/sessions/${id}/logs`),
   getSessionCi: (id: number) => request<SessionCi>(`/api/sessions/${id}/ci`),
+  /** QC reviews the session's PR, in a new session. */
+  startReview: (id: number) => request<Session>(`/api/sessions/${id}/review`, { method: "POST" }),
+  setAutoReview: (repoId: number, on: boolean) =>
+    request<Repo>(`/api/repos/${repoId}/auto-review`, { method: "PUT", body: JSON.stringify({ on }) }),
   /** Server-sent events for one session: a snapshot, then each change. */
   sessionEventsUrl: (id: number) => `${API_ORIGIN}/api/sessions/${id}/events`,
   listRepos: () => request<Repo[]>("/api/repos"),

@@ -43,6 +43,11 @@ export interface Session {
   spec_phase: SpecPhase | null;
   /** The spec's path in the repo, once the first spec turn has run. */
   spec_path: string | null;
+  /** On a code review session (QC): the session whose PR it reviews. */
+  review_of?: number | null;
+  /** The latest review of this session's PR, and how many have run. */
+  review_session_id?: number | null;
+  reviews_run?: number;
   created_at: number;
   updated_at: number;
 }
@@ -178,6 +183,8 @@ export interface Repo {
   created_at: number;
   wiki_status: WikiStatus | null;
   wiki_last_indexed_at: number | null;
+  /** 1: QC reviews each session's PR once Bertha first pushes to it. */
+  auto_review?: number;
 }
 
 /** What the deterministic scan found in the checkout. */

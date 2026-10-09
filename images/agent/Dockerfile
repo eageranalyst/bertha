@@ -20,6 +20,7 @@ RUN chmod +x /opt/factory/push.sh
 COPY run_summary.py /opt/factory/run_summary.py
 COPY WORKING.md /opt/factory/WORKING.md
 COPY PERSONA.md /opt/factory/PERSONA.md
+COPY QC.md /opt/factory/QC.md
 
 WORKDIR /data
 ENTRYPOINT ["/entrypoint.sh"]

@@ -54,10 +54,11 @@ function groupRuns(segments: AgentLogSegment[]): Item[] {
   return items;
 }
 
-export function AgentOutputLog({ content, time }: { content: string; time: string }) {
+/** One turn's output, said by Bertha, or by QC in a review session. */
+export function AgentOutputLog({ content, time, qc = false }: { content: string; time: string; qc?: boolean }) {
   const items = groupRuns(parseAgentLog(content));
   return (
-    <MessageRow role="agent" label="Bertha" time={time}>
+    <MessageRow role={qc ? "qc" : "agent"} label={qc ? "QC" : "Bertha"} time={time}>
       <div className="agent-turn">
         {items.map((item, i) => {
           if (item.kind === "group") return <ActionGroup key={i} events={item.events} />;

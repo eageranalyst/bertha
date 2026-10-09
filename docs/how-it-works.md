@@ -229,7 +229,30 @@ vote it up or down. Only saved notes reach agents: their titles in each
 turn's repo context, highest-voted first, and the full note through the
 `context_note` tool, which counts how often agents read each one.
 
-## Schedules
+## Code review
+
+Bertha's work can be checked by **QC**, the factory's quality control, before
+anyone else reviews it (`start_review` and `_after_review` in
+`app/scheduler.py`).
+
+- **Its own session.** A review is a new session, for independence: its own
+  container, conversation and, where there's one at least as strong, a
+  different model from the one that wrote the change. It checks out the pull
+  request's branch read-only (it can't push, comment or change GitHub) and
+  follows the built-in `bertha-review` skill: read the diff and the code
+  around it, check it against the task and the repo's rules, run the checks,
+  and end with findings in a fixed JSON block. QC has its own character
+  (`images/agent/QC.md`) and shows in the transcript with a clipboard.
+- **Findings go on the PR, and Bertha fixes them.** Bertha posts QC's report on
+  the pull request and queues a turn in the reviewed session with the findings
+  to fix, or to explain in her report if one is wrong. A clean review is
+  posted as a pass.
+- **When.** Each session with a PR has a **Run code review** button. Turn on
+  **Code review** on a repo's Metadata tab to have QC review every session's
+  PR automatically, once, when Bertha first pushes to it. Her fixes aren't
+  re-reviewed automatically, so there's no review loop; the button runs
+  another pass.
+
 
 The **Schedules** tab runs a prompt on a cron schedule. Each run starts a
 normal session (it shows in the Sessions list, and in the schedule's run

@@ -327,6 +327,16 @@ def _add_missing_session_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE skills ADD COLUMN builtin INTEGER NOT NULL DEFAULT 0")
         conn.execute("ALTER TABLE skills ADD COLUMN seeded_hash TEXT")
     session_cols = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+    if "review_of" not in session_cols:
+        # A code review session (QC) points at the session it reviews; that
+        # session keeps its latest review and how many have run.
+        conn.execute("ALTER TABLE sessions ADD COLUMN review_of INTEGER")
+        conn.execute("ALTER TABLE sessions ADD COLUMN review_session_id INTEGER")
+        conn.execute("ALTER TABLE sessions ADD COLUMN reviews_run INTEGER NOT NULL DEFAULT 0")
+    repo_cols = {row[1] for row in conn.execute("PRAGMA table_info(repos)").fetchall()}
+    if "auto_review" not in repo_cols:
+        # 1: QC reviews a session's pull request once Bertha first pushes to it.
+        conn.execute("ALTER TABLE repos ADD COLUMN auto_review INTEGER NOT NULL DEFAULT 0")
     if "context_harvested_at" not in session_cols:
         # When the session's closed PR was read for review notes.
         conn.execute("ALTER TABLE sessions ADD COLUMN context_harvested_at REAL")
@@ -531,6 +541,9 @@ _ALLOWED_FIELDS = {
     "ci_fix_attempts",
     "context_harvested_at",
     "ci_failed_sha",
+    "review_of",
+    "review_session_id",
+    "reviews_run",
 }
 
 
@@ -624,7 +637,7 @@ def list_repos() -> list[dict[str, Any]]:
     with _connect() as conn:
         rows = conn.execute(
             """
-            SELECT r.id, r.full_name, r.created_at,
+            SELECT r.id, r.full_name, r.created_at, r.auto_review,
                    w.status AS wiki_status, w.last_indexed_at AS wiki_last_indexed_at
             FROM repos r
             LEFT JOIN wiki_indexes w ON w.repo = r.full_name
@@ -632,6 +645,17 @@ def list_repos() -> list[dict[str, Any]]:
             """
         ).fetchall()
         return [_row_to_dict(r) for r in rows]
+
+
+def get_repo_by_name(full_name: str) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM repos WHERE full_name = ?", (full_name,)).fetchone()
+        return _row_to_dict(row) if row else None
+
+
+def set_repo_auto_review(repo_id: int, on: bool) -> None:
+    with _connect() as conn:
+        conn.execute("UPDATE repos SET auto_review = ? WHERE id = ?", (1 if on else 0, repo_id))
 
 
 def delete_repo(repo_id: int) -> None:

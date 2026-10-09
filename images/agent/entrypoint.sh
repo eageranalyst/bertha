@@ -111,7 +111,7 @@ ${MCP_BLOCK}
     }
   },
   "tool_output": { "max_lines": 200, "max_bytes": 8192 },
-  "instructions": ["/opt/factory/PERSONA.md", "/opt/factory/WORKING.md", "${HOME}/factory/repo-context.md"],
+  "instructions": ["/opt/factory/${PERSONA_FILE:-PERSONA.md}", "/opt/factory/WORKING.md", "${HOME}/factory/repo-context.md"],
   "compaction": { "auto": true, "prune": true },
   "permission": {
     "edit": "allow",
@@ -192,6 +192,12 @@ if [ -n "$REPO" ] && [ "${SPEC_MODE:-}" = "draft" ]; then
     # A spec turn: Bertha wrote the whole message (app/specs.py). Only the
     # spec file is kept afterwards, so the turn can't slip into building.
     : "${SPEC_PATH:?SPEC_PATH env var required for a spec turn}"
+elif [ -n "$REPO" ] && [ -n "${REVIEW_OF_PR:-}" ]; then
+    # A code review (QC): someone else's change, checked out read-only. Bertha
+    # wrote the task; nothing this turn changes is pushed (NO_PUSH).
+    MESSAGE="You are reviewing pull request #$REVIEW_OF_PR, checked out in /data/repo on its branch $BRANCH_NAME. Review it with the bertha-review skill: load it with the skill tool and follow it. Don't change any files: you inspect, and Bertha fixes what you find.
+
+$PROMPT"
 elif [ -n "$REPO" ]; then
     # The general working practices come from WORKING.md (see "instructions"
     # in the config); this only adds what's specific to this turn.
