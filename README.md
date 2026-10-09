@@ -11,6 +11,27 @@ running on your own machine. Assign her an issue and she writes the code, opens
 a pull request, and answers your review comments, all without sending your code
 to a hosted AI service.
 
+## Before you use it
+
+Bertha is a **personal project**, built for my own use. Please read these
+caveats before running it:
+
+- **Not hardened against prompt injection.** Bertha hands issue text, pull
+  request comments, code and CI logs to models that then act on them. Anyone
+  who can write any of those can try to steer the agent. The containment
+  below limits what a steered agent can do, but treat it as damage control,
+  not as a security boundary.
+- **Run it locally only.** The API and the web app have no authentication.
+  Keep them on `localhost` (the default) and never expose them to a network or
+  the internet.
+- **Private repos with trusted people only.** Point Bertha only at private
+  repos where everyone who can open issues, comment or push is someone you
+  trust. Don't use it on public repos or ones with outside contributors.
+- **Give it as little as possible.** Use a dedicated GitHub account with a
+  fine-grained token limited to those repos, and protect each default branch
+  so nothing merges without your review.
+- **No guarantees.** It's early, changes often, and comes with no support.
+
 ## What it does
 
 - **Turns issues into pull requests.** Assign an issue to Bertha's GitHub
@@ -32,9 +53,10 @@ to a hosted AI service.
 - **Private and free to run.** The models run locally (LM Studio or any
   OpenAI-compatible server), so your code stays on your machine and there's no
   per-token bill.
-- **Safe by design.** Each task runs in an isolated container with no GitHub
-  credentials and no open internet access. Bertha only ever *proposes* changes
-  as pull requests; merging is always up to you.
+- **Contained by design.** Each task runs in an isolated container with no
+  GitHub credentials and no open internet access. Bertha only ever *proposes*
+  changes as pull requests; merging is always up to you. (This limits damage;
+  it doesn't make Bertha safe for untrusted input. See the caveats above.)
 - **Fits how you already work.** Issues, pull requests, review comments and CI:
   you steer Bertha from GitHub, or from her web app.
 
@@ -78,5 +100,5 @@ protect your default branch so her pull requests need a review.
 containment model, GitHub tools, models and routing, the wiki and agent
 context, schedules, and the code layout.
 
-Bertha is a single-user tool meant to run on your own machine. It's early
-software, so expect rough edges.
+Bertha is a single-user personal project meant to run on your own machine,
+against your own private repos. See [Before you use it](#before-you-use-it).
