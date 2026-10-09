@@ -28,6 +28,9 @@ import sys
 
 # The same failure this many times in one run is a loop, not bad luck.
 LOOP_REPEATS = 3
+# The identical call this many times in a row is a loop even when each one
+# "succeeds" (a commit with nothing to commit, re-reading the same file).
+SAME_CALL_REPEATS = 5
 # Tool output that means the thing asked for isn't there, though the tool
 # itself "completed" (bash's ls and find, the glob tool).
 MISSING_RE = re.compile(r"No such file or directory|cannot access|^No files found", re.M)
@@ -56,17 +59,40 @@ def _failure(event: dict) -> str | None:
     return f"{part.get('tool') or 'tool'} {str(detail)[:200]} keeps failing"
 
 
+def _call(event: dict) -> tuple[str, str] | None:
+    """A tool call as (key, short description): equal keys are identical calls."""
+    if event.get("type") != "tool_use":
+        return None
+    part = event.get("part") or {}
+    tool_input = (part.get("state") or {}).get("input") or {}
+    detail = tool_input.get("command") or tool_input.get("filePath") or tool_input.get("pattern") or ""
+    return f"{part.get('tool')}|{json.dumps(tool_input, sort_keys=True)}", f"{part.get('tool')} {str(detail)[:120]}"
+
+
 class LoopWatch:
-    """Counts failures by what they failed on. The first to reach
-    LOOP_REPEATS is the loop."""
+    """Two kinds of loop: the same failure LOOP_REPEATS times in a run (by
+    what it failed on), or the identical call SAME_CALL_REPEATS times in a
+    row, whatever it returned. The first to trip is the loop."""
 
     def __init__(self) -> None:
         self.counts: dict[str, int] = {}
+        self.last_call = ""
+        self.streak = 0
         self.loop = ""
 
     def see(self, event: dict) -> bool:
+        if self.loop:
+            return False
+        call = _call(event)
+        if call:
+            key, detail = call
+            self.streak = self.streak + 1 if key == self.last_call else 1
+            self.last_call = key
+            if self.streak >= SAME_CALL_REPEATS:
+                self.loop = f"the same call ({detail}) ran {self.streak} times in a row"
+                return True
         key = _failure(event)
-        if key and not self.loop:
+        if key:
             self.counts[key] = self.counts.get(key, 0) + 1
             if self.counts[key] >= LOOP_REPEATS:
                 self.loop = key
@@ -153,7 +179,7 @@ def watch_stream(path: str) -> None:
             except ValueError:
                 continue
             if watch.see(event):
-                print(f"=== Stopping the run: {watch.loop} ({LOOP_REPEATS} tries) ===", flush=True)
+                print(f"=== Stopping the run: {watch.loop} ===", flush=True)
                 subprocess.run(["pkill", "-TERM", "-u", "node"], check=False)
                 break
     # Drain whatever the agent writes as it shuts down, so it never blocks.

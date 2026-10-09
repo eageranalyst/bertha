@@ -734,7 +734,7 @@ class Scheduler:
             store.append_log(
                 session["id"], "system",
                 f"{failed_model} can't run this turn ({problem}), and no other enabled model can "
-                "take it. Load a model with enough context, or lower the minimum in Settings.",
+                f"take it. {advice}",
             )
             return
         store.update_session(session["id"], model=chosen["key"], last_turn_failed=1)
