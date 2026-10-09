@@ -409,6 +409,8 @@ a.rail-new { padding: 0; }
    others so narration never blends into raw output or tool calls --- */
 
 .agent-turn { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+/* Consecutive tool lines sit close together, as one quiet block. */
+.agent-turn > .action-chip + .action-chip { margin-top: -6px; }
 
 .console-block {
   margin: 0;
@@ -423,20 +425,20 @@ a.rail-new { padding: 0; }
   padding: 2px 0 2px 10px;
 }
 
-.action-chip {
-  border: 1px solid var(--border-soft);
-  border-radius: 6px;
-  background: var(--bg);
-}
+/* Tool calls are flat lines, quieter than what the agent says: no box,
+   just a soft highlight on hover to show they open. */
+.action-chip { border-radius: 6px; }
 .action-chip summary {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 3px 8px;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
   list-style: none;
 }
+.action-chip summary:hover { background: var(--bg-raised); }
 .action-chip summary::-webkit-details-marker { display: none; }
 .action-icon { flex-shrink: 0; width: 14px; height: 14px; fill: none; stroke: var(--text-faint); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .action-icon.kind-search { stroke: var(--accent); }
@@ -450,15 +452,15 @@ a.rail-new { padding: 0; }
   display: flex; align-items: baseline; gap: 6px; min-width: 0; flex: 1;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.action-verb { color: var(--text); flex-shrink: 0; }
+.action-verb { color: var(--text-dim); flex-shrink: 0; }
 .action-target {
   font-family: var(--font-mono, "JetBrains Mono"), ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11.5px; color: var(--text); background: var(--bg-sunken);
+  font-size: 11.5px; color: var(--text-dim); background: var(--bg-raised);
   padding: 1px 6px; border-radius: 4px; overflow: hidden; text-overflow: ellipsis; min-width: 0;
 }
 .action-where { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; }
 .action-result { margin-left: auto; flex-shrink: 0; color: var(--text-faint); font-size: 11.5px; font-variant-numeric: tabular-nums; }
-.action-group-body { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px 8px 22px; border-top: 1px solid var(--border-soft); }
+.action-group-body { display: flex; flex-direction: column; margin: 0 0 4px 15px; padding-left: 8px; border-left: 1px solid var(--border-soft); }
 .tool-badge {
   margin-left: auto;
   font-size: 10px;
@@ -469,11 +471,12 @@ a.rail-new { padding: 0; }
   border-radius: 4px;
   flex-shrink: 0;
 }
-.action-chip.action-failed { border-color: var(--danger-border); }
 .tool-diff, .tool-output {
-  margin: 0;
+  margin: 2px 0 6px 30px;
   padding: 8px 10px;
-  border-top: 1px solid var(--border-soft);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg);
   font-family: var(--font-mono, "JetBrains Mono"), ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11.5px;
   white-space: pre-wrap;
@@ -998,7 +1001,7 @@ code.hljs { padding: 3px 5px; }
 }
 @keyframes todo-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
-.plan-chip-body { padding: 4px 12px 8px; border-top: 1px solid var(--border-soft); }
+.plan-chip-body { margin: 0 0 4px 15px; padding: 0 8px; border-left: 1px solid var(--border-soft); }
 
 /* -- save bar: Save and Discard at the top and bottom of a settings page -- */
 
