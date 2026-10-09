@@ -99,7 +99,7 @@ export function SessionDetail({
   }, [logs, pendingEcho]);
 
   // The agent's latest to-do list, floated over the transcript.
-  const todos = useMemo(
+  const plan = useMemo(
     () => latestTodos(logs.filter((l) => l.kind === "agent_output").map((l) => l.content)),
     [logs],
   );
@@ -212,8 +212,8 @@ export function SessionDetail({
       {session.spec_phase && <SpecPanel session={session} onApprove={onApproveSpec} onAbandon={onAbandonSpec} />}
 
       <div className="logs-wrap">
-      {todos && todos.length > 0 && (
-        <TodoFloat todos={todos} running={session.status === "running"} sessionId={session.id} />
+      {plan && plan.todos.length > 0 && (
+        <TodoFloat todos={plan.todos} stale={plan.stale} running={session.status === "running"} sessionId={session.id} />
       )}
       <div id="detail-logs" ref={logsRef} onScroll={onLogsScroll}>
         <div ref={logsContentRef}>

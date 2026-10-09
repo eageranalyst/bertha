@@ -66,7 +66,18 @@ export function TodoChecklist({ todos }: { todos: Todo[] }) {
  * The agent's current to-do list, floating over the top right of the
  * transcript. Open while a turn runs; collapses to a progress pill.
  */
-export function TodoFloat({ todos, running, sessionId }: { todos: Todo[]; running: boolean; sessionId: number }) {
+export function TodoFloat({
+  todos,
+  stale = false,
+  running,
+  sessionId,
+}: {
+  todos: Todo[];
+  /** The agent's context was compacted after this list was last updated. */
+  stale?: boolean;
+  running: boolean;
+  sessionId: number;
+}) {
   const [open, setOpen] = useState(running);
   // A new session, or a turn starting, opens it again.
   useEffect(() => setOpen(running), [running, sessionId]);
@@ -87,6 +98,11 @@ export function TodoFloat({ todos, running, sessionId }: { todos: Todo[]; runnin
           {open ? "–" : "+"}
         </span>
       </button>
+      {stale && (
+        <div className="todo-float-stale" title="The agent compacted its conversation after it last updated this plan">
+          Last updated before the agent summarised its progress, so it may be behind.
+        </div>
+      )}
       {!open && current && <div className="todo-float-current">{current.content}</div>}
       {open && (
         <div className="todo-float-body">

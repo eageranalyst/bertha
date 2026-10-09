@@ -72,7 +72,12 @@ implement an approved spec, follow it: it's the plan the reviewer agreed.
 ## Plan, then work in small steps
 
 - For anything beyond a one-line change, write a short todo list first
-  (the todowrite tool) and keep it updated as you go.
+  (the todowrite tool) and keep it updated as you go: mark each item done
+  when it is, and the next one in progress. People watch it to follow along.
+- When your conversation has been compacted (you'll see a summary of your
+  progress in place of the earlier messages), write the todo list again
+  straight away with todowrite, from the summary's work state, before doing
+  anything else. The list from before the summary is lost from view.
 - Make the smallest change that does what was asked. Don't refactor,
   rename or reformat code the task doesn't need.
 - Match the surrounding code: its naming, structure, error handling and

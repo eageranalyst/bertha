@@ -80,16 +80,26 @@ function toTodos(value: unknown): Todo[] | undefined {
     .map((t) => ({ content: t.content, status: String(t.status ?? "pending"), priority: t.priority }));
 }
 
-/** The agent's most recent to-do list in these turns' outputs, newest last. */
-export function latestTodos(outputs: string[]): Todo[] | null {
-  for (let i = outputs.length - 1; i >= 0; i--) {
-    const segments = parseAgentLog(outputs[i]);
-    for (let j = segments.length - 1; j >= 0; j--) {
-      const seg = segments[j];
-      if (seg.kind === "event" && seg.event.type === "tool_use" && seg.event.todos) return seg.event.todos;
+/**
+ * The agent's most recent to-do list in these turns' outputs (oldest first),
+ * and whether its conversation was compacted since: after a compaction the
+ * agent may carry on without updating a list it can no longer see.
+ */
+export function latestTodos(outputs: string[]): { todos: Todo[]; stale: boolean } | null {
+  let todos: Todo[] | null = null;
+  let stale = false;
+  for (const output of outputs) {
+    for (const seg of parseAgentLog(output)) {
+      if (seg.kind !== "event") continue;
+      if (seg.event.type === "tool_use" && seg.event.todos) {
+        todos = seg.event.todos;
+        stale = false;
+      } else if (seg.event.type === "compaction" && todos) {
+        stale = true;
+      }
     }
   }
-  return null;
+  return todos ? { todos, stale } : null;
 }
 
 export function parseAgentLog(raw: string): AgentLogSegment[] {

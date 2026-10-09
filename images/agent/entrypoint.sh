@@ -381,7 +381,7 @@ while true; do
     PREVIOUS_LOOP="$LOOP"
     CONTINUATIONS_USED=$((CONTINUATIONS_USED + 1))
     if [ -n "$STEP_LIMIT" ] && [ -z "$LOOP" ]; then
-        MESSAGE_THIS_RUN="Your last run used all its steps before the task was finished. You have more now: carry on from where you got to, and finish with a final answer once the work is done and checked."
+        MESSAGE_THIS_RUN="Your last run used all its steps before the task was finished. You have more now. First bring your todo list up to date with todowrite, then carry on from where you got to, and finish with a final answer once the work is done and checked."
     elif [ -n "$LOOP" ]; then
         MESSAGE_THIS_RUN="Bertha stopped your last run because you were going round in circles: $LOOP. Don't do it again. If something keeps failing on a path, list its parent directory (or use glob) and use the name that's actually there. If a command keeps giving the same result, it won't change: check its output, decide, and move on. Then carry on with the task and finish with a final answer."
     else
