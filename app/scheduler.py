@@ -988,7 +988,7 @@ class Scheduler:
         if not parent or not parent.get("pr_number"):
             return
         number = parent["pr_number"]
-        report = parse_review(_final_message(logs))
+        report = parse_review(_final_message(logs, max_chars=None))
         if report is None:
             store.append_log(parent["id"], "system",
                              f"QC's review (session {review['ref']}) ended without a report, so nothing was posted")
@@ -1370,8 +1370,10 @@ def review_comment(session: dict[str, Any], report: dict[str, Any]) -> str:
     return "\n\n".join(parts)
 
 
-def _final_message(logs: str) -> str:
-    """The agent's last message in a turn's output, which ends with its report."""
+def _final_message(logs: str, max_chars: int | None = 4000) -> str:
+    """The agent's last message in a turn's output, which ends with its report.
+    Trimmed to its last max_chars (enough for a PR description); None keeps it
+    whole, which a structured report needs: trimming cuts off its start."""
     last = ""
     for line in logs.splitlines():
         try:
@@ -1381,4 +1383,5 @@ def _final_message(logs: str) -> str:
         part = event.get("part") or {}
         if event.get("type") == "text" and (part.get("text") or "").strip():
             last = part["text"]
-    return last.strip()[-4000:]
+    last = last.strip()
+    return last[-max_chars:] if max_chars else last
