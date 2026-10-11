@@ -122,10 +122,11 @@ class WikiIndexer:
     def _model_id(self) -> str:
         """The model to write pages with: the registry's default, which
         prefers a loaded model, so the build doesn't fail on one that was
-        unloaded. Falls back to FACTORY_LOCAL_MODEL_ID with no registry.
+        unloaded. Local only: the build container reaches the local server and
+        nothing else. Falls back to FACTORY_LOCAL_MODEL_ID with no registry.
         """
         model_registry.refresh_context(self.settings)
-        chosen = model_registry.default_model(self.settings)
+        chosen = model_registry.default_model(self.settings, local_only=True)
         return chosen["model_id"] if chosen else self.settings.local_model_id
 
     def _guarded(self, repo: str, work) -> None:

@@ -52,19 +52,23 @@ for skill in json.load(sys.stdin):
     (folder / "SKILL.md").write_text(skill["content"])
 '
 
-# Every enabled model Bertha knows about, so the agent can use the right one
-# for the task. Falls back to the single model in LOCAL_MODEL_* when none
-# were sent.
-MODELS_BLOCK=$(printf '%s' "${MODELS_JSON:-[]}" | python3 -c '
+# Every model Bertha can use, by provider, so the agent can use the right one
+# for the task (app/scheduler.py _opencode_providers). Hosted providers are
+# reached through Bertha's model relay with this turn's key, never a real API
+# key. The local server's address is this container's route to it. Falls back
+# to the single model in LOCAL_MODEL_* when none were sent.
+PROVIDER_BLOCK=$(printf '%s' "${PROVIDERS_JSON:-}" | python3 -c '
 import json, os, sys
-models = json.load(sys.stdin) or [{"key": os.environ["LOCAL_MODEL_KEY"], "model_id": os.environ["LOCAL_MODEL_ID"]}]
-def entry(m):
-    e = {"id": m["model_id"], "name": m["model_id"]}
-    if m.get("context"):
-        # OpenCode compacts when this fills, so a working size keeps steps fast.
-        e["limit"] = {"context": int(m["context"]), "output": 8192}
-    return e
-print(json.dumps({m["key"]: entry(m) for m in models}))
+raw = sys.stdin.read().strip()
+providers = json.loads(raw) if raw else {}
+local = os.environ["LOCAL_MODEL_PROVIDER"]
+if not providers:
+    model_id = os.environ["LOCAL_MODEL_ID"]
+    providers = {local: {"npm": "@ai-sdk/openai-compatible", "name": "Local models (factory)", "options": {},
+                         "models": {os.environ["LOCAL_MODEL_KEY"]: {"id": model_id, "name": model_id}}}}
+if local in providers:
+    providers[local]["options"]["baseURL"] = os.environ["LOCAL_MODEL_BASE_URL"]
+print(json.dumps(providers))
 ')
 
 # Bertha's GitHub tools, when this session has them: an MCP server that holds
@@ -91,14 +95,7 @@ printf '%s\n' "${REPO_CONTEXT:-}" > "$HOME/factory/repo-context.md"
 cat > "$HOME/.config/opencode/opencode.jsonc" <<EOF
 {
   "\$schema": "https://opencode.ai/config.json",
-  "provider": {
-    "${LOCAL_MODEL_PROVIDER}": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Local models (factory)",
-      "options": { "baseURL": "${LOCAL_MODEL_BASE_URL}" },
-      "models": ${MODELS_BLOCK}
-    }
-  },
+  "provider": ${PROVIDER_BLOCK},
   "skills": { "paths": ["${HOME}/skills", "/data/repo/.claude/skills"] },
 ${MCP_BLOCK}
   "agent": {

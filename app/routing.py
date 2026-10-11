@@ -19,7 +19,7 @@ import httpx
 
 from . import agent_settings
 from . import models as registry
-from . import store
+from . import providers, store
 from .config import Settings
 
 logger = logging.getLogger("factory.routing")
@@ -53,10 +53,7 @@ def pick_model(enabled: list[dict[str, Any]], current: dict[str, Any] | None, ti
         return current
     target = TIERS.index(tier)
     for candidate in sorted(TIERS, key=lambda t: (abs(TIERS.index(t) - target), -TIERS.index(t))):
-        matches = sorted(
-            (m for m in enabled if m["tier"] == candidate),
-            key=lambda m: (registry.availability(m), m["key"]),
-        )
+        matches = sorted((m for m in enabled if m["tier"] == candidate), key=registry.preference)
         if current and any(m["key"] == current["key"] for m in matches):
             return current  # the nearest tier is the one it's already on
         if matches:
@@ -74,9 +71,11 @@ def classify(settings: Settings, light: dict[str, Any], task: dict[str, Any]) ->
         "Task:",
         task["prompt"][:MAX_TASK_CHARS],
     ])
+    url, headers, _extra = providers.chat_target(settings, light)
     try:
         response = httpx.post(
-            f"{settings.local_model_host_base_url}/chat/completions",
+            url,
+            headers=headers,
             json={
                 "model": light["model_id"],
                 "messages": [
@@ -117,7 +116,7 @@ def eligible_models(task: dict[str, Any], exclude: frozenset[str] = frozenset())
     minimum = agent_settings.current()["min_code_context"] if task["session_type"] == "code" else 0
     return [
         m for m in store.list_models()
-        if m["enabled"]
+        if providers.usable(m)
         and m["key"] not in exclude
         and (m.get("context_length") is None or m["context_length"] >= minimum)
     ]
@@ -144,7 +143,7 @@ def route(
         # The current model can't take this turn (too little context, or
         # excluded): routing has to move it, even if the classifier is down.
         current = None
-    light = pick_model([m for m in store.list_models() if m["enabled"]], None, "light")
+    light = pick_model([m for m in store.list_models() if providers.usable(m)], None, "light")
     if light is None or not task["prompt"].strip():
         fallback = current or pick_model(enabled, None, "strong")
         return fallback, None if fallback is current else "the current model can't take this turn"

@@ -55,6 +55,13 @@ class Settings:
     port: int
     bot_name: str
     bot_email: str
+    # Hosted model providers (app/providers.py), by provider id: the API key,
+    # empty when that provider isn't set up. Agents never see these; their
+    # calls go through the model relay (app/model_relay.py).
+    provider_keys: dict[str, str]
+    # Any other OpenAI-compatible server (Groq, Together, Ollama, vLLM...).
+    custom_provider_name: str
+    custom_provider_base_url: str
 
     @property
     def model_host_port(self) -> tuple[str, int]:
@@ -115,4 +122,12 @@ def get_settings() -> Settings:
         bot_name=os.environ.get("FACTORY_BOT_NAME") or os.environ["GITHUB_BOT_USERNAME"],
         bot_email=os.environ.get("FACTORY_BOT_EMAIL")
         or f'{os.environ["GITHUB_BOT_USERNAME"]}@users.noreply.github.com',
+        # FACTORY_-prefixed, so a key that's in your shell for something else
+        # (ANTHROPIC_API_KEY for Claude Code, say) is never spent by Bertha.
+        provider_keys={
+            provider: os.environ.get(f"FACTORY_{provider.upper()}_API_KEY", "").strip()
+            for provider in ("anthropic", "openai", "openrouter", "deepseek", "gemini", "custom")
+        },
+        custom_provider_name=os.environ.get("FACTORY_CUSTOM_NAME", "").strip() or "Custom",
+        custom_provider_base_url=os.environ.get("FACTORY_CUSTOM_BASE_URL", "").strip().rstrip("/"),
     )

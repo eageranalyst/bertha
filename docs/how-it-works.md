@@ -414,11 +414,37 @@ does most of the work, the way hosted agents do it:
 
 ## Models
 
-The model server can host several models. Bertha reads its model list
-(`/v1/models`, minus embedding models) into **Settings → Models**. Each model
-gets a tier from its parameter count: up to 8B is `light`, up to 14B
-`standard`, larger is `strong`. You can change the tier, add a description,
-or disable a model. Refresh after loading or removing models in the server.
+Models come from **providers** (`app/providers.py`): the local model server,
+and hosted vendors: Anthropic, OpenAI, OpenRouter, DeepSeek, Google Gemini, and
+one custom OpenAI-compatible server (Groq, Together, Ollama, vLLM...).
+
+**What's set where.** A provider's connection (its API key and base URL) lives
+in `.env`, because it's a secret or rarely changes. **Settings → Models** shows
+it read-only, along with the other model settings in `.env` (routing, default
+and embedding model). Which models are used, and their tier, description,
+context and price, are set on that page. API keys are `FACTORY_`-prefixed
+(`FACTORY_ANTHROPIC_API_KEY`, `FACTORY_OPENROUTER_API_KEY`...), so a key that's
+in your shell for something else is never spent by Bertha. Taking a key out of
+`.env` takes that provider's models out of use without forgetting them.
+
+**Local models.** Bertha reads the local server's model list (`/v1/models`,
+minus embedding models). Each model gets a tier from its name: its parameter
+count (up to 8B `light`, up to 14B `standard`, larger `strong`), or words like
+mini/flash/haiku (`light`) and pro/opus (`strong`). Refresh after loading or
+removing models in the server. A local model's context is what the server
+reports, and it's free.
+
+**Hosted models.** Use **Add model** on a provider to pick from what it offers.
+The context and price (dollars per million tokens in and out) are filled in
+where the provider lists them, as OpenRouter does, and are yours to edit.
+
+**Keys stay out of agents.** Agent containers never hold a provider key. Their
+OpenCode is pointed at the model relay (`app/model_relay.py`) on the tools
+server, with the turn's key in place of an API key. The relay checks the key,
+refuses any model that isn't added and enabled, swaps in the real key, and
+streams the reply back. Anthropic is reached through its own API, which keeps
+prompt caching; the rest through the OpenAI API. Ask sessions, routing and
+note-writing call providers from the host. Wiki builds use local models only.
 
 A session is created on a model: pick one on the New session page, or it
 gets the default (`FACTORY_DEFAULT_MODEL` if set, otherwise the strongest
@@ -429,7 +455,9 @@ models itself. Ask sessions call the chosen model directly.
 **Routing.** A session on the default ("Auto") is routed turn by turn
 (`app/routing.py`). Before each turn, the lightest enabled model reads the
 task and says whether it needs light, standard or strong; the turn runs on an
-enabled model in that tier, and the session's model is updated and logged
+enabled model in that tier (a loaded local model first, then the cheapest
+hosted one, then a local model that has to be loaded; a hosted model with no
+price comes after priced ones), and the session's model is updated and logged
 with the reason. A turn that failed moves the next one up a tier. Routing
 only changes the model when the tier changes, to avoid reloads. If the
 classifier can't answer, the turn keeps the current model.

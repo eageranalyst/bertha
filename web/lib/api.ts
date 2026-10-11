@@ -6,6 +6,8 @@ import type {
   ScheduleRun,
   LogEntry,
   Model,
+  OfferedModel,
+  ProvidersInfo,
   RepoMetadata,
   RepoSkill,
   Repo,
@@ -141,11 +143,21 @@ export const api = {
     request<AgentSetting[]>("/api/settings", { method: "PUT", body: JSON.stringify(values) }),
   listModels: () => request<Model[]>("/api/models"),
   refreshModels: () => request<Model[]>("/api/models/refresh", { method: "POST" }),
-  updateModel: (key: string, patch: Partial<Pick<Model, "tier" | "description" | "enabled">>) =>
+  updateModel: (
+    key: string,
+    patch: Partial<Pick<Model, "tier" | "description" | "enabled" | "context_length" | "price_in" | "price_out">>,
+  ) =>
     request<Model>(`/api/models/${encodeURIComponent(key)}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
+  addModel: (provider: string, modelId: string) =>
+    request<Model>("/api/models", { method: "POST", body: JSON.stringify({ provider, model_id: modelId }) }),
+  removeModel: (key: string) =>
+    request<{ ok: boolean }>(`/api/models/${encodeURIComponent(key)}`, { method: "DELETE" }),
+  listProviders: () => request<ProvidersInfo>("/api/providers"),
+  providerModels: (provider: string) =>
+    request<OfferedModel[]>(`/api/providers/${encodeURIComponent(provider)}/models`),
 
   createSession: (body: {
     session_type: SessionType;

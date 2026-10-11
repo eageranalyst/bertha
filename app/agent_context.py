@@ -22,7 +22,7 @@ from typing import Any
 import httpx
 
 from . import models as model_registry
-from . import store
+from . import providers, store
 from .config import Settings
 
 logger = logging.getLogger("factory.agent_context")
@@ -145,9 +145,11 @@ def _ask_model(settings: Settings, system: str, user: str) -> dict[str, Any] | N
     model_registry.refresh_context(settings)
     chosen = model_registry.default_model(settings)
     model_id = chosen["model_id"] if chosen else settings.local_model_id
+    url, headers, extra = providers.chat_target(settings, chosen)
     response = httpx.post(
-        f"{settings.local_model_host_base_url}/chat/completions",
-        json={"model": model_id, "stream": False, "temperature": 0.2,
+        url,
+        headers=headers,
+        json={"model": model_id, "stream": False, "temperature": 0.2, **extra,
               "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]},
         timeout=MODEL_TIMEOUT_SECONDS,
     )

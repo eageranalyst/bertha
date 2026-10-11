@@ -52,7 +52,9 @@ caveats before running it:
 
 - **Private and free to run.** The models run locally (LM Studio or any
   OpenAI-compatible server), so your code stays on your machine and there's no
-  per-token bill.
+  per-token bill. When you want more, add a hosted provider (Anthropic, OpenAI,
+  OpenRouter, DeepSeek, Gemini, or any OpenAI-compatible API) and routing uses
+  the cheapest model that fits each task.
 - **Contained by design.** Each task runs in an isolated container with no
   GitHub credentials and no open internet access. Bertha only ever *proposes*
   changes as pull requests; merging is always up to you. (This limits damage;

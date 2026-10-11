@@ -111,8 +111,9 @@ CREATE TABLE IF NOT EXISTS skill_metadata (
     PRIMARY KEY (skill_id, key)
 );
 
--- Local models Bertha can run sessions on. Discovered from the model server;
--- the tier and description are for choosing between them.
+-- Models Bertha can run sessions on: discovered from the local model server,
+-- or added from a hosted provider (app/providers.py). The tier, description
+-- and price are for choosing between them.
 CREATE TABLE IF NOT EXISTS models (
     key TEXT PRIMARY KEY,
     model_id TEXT NOT NULL,
@@ -322,6 +323,12 @@ def _add_missing_session_columns(conn: sqlite3.Connection) -> None:
     if model_cols and "loaded" not in model_cols:
         # 1 loaded in the server now, 0 not loaded, null unknown.
         conn.execute("ALTER TABLE models ADD COLUMN loaded INTEGER")
+    if model_cols and "provider" not in model_cols:
+        # "local", or a hosted provider's id (app/providers.py).
+        conn.execute("ALTER TABLE models ADD COLUMN provider TEXT NOT NULL DEFAULT 'local'")
+        # Dollars per million tokens in and out; null when free (local) or unknown.
+        conn.execute("ALTER TABLE models ADD COLUMN price_in REAL")
+        conn.execute("ALTER TABLE models ADD COLUMN price_out REAL")
     skill_cols = {row[1] for row in conn.execute("PRAGMA table_info(skills)").fetchall()}
     if "builtin" not in skill_cols:
         conn.execute("ALTER TABLE skills ADD COLUMN builtin INTEGER NOT NULL DEFAULT 0")
@@ -1026,6 +1033,26 @@ def add_discovered_model(key: str, model_id: str, tier: str) -> None:
         )
 
 
+def add_model(key: str, provider: str, model_id: str, tier: str, context_length: int | None,
+              price_in: float | None, price_out: float | None) -> None:
+    """Registers a model chosen from a hosted provider."""
+    now = time.time()
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO models (key, model_id, tier, description, enabled, created_at, updated_at,
+                                context_length, provider, price_in, price_out)
+            VALUES (?, ?, ?, '', 1, ?, ?, ?, ?, ?, ?)
+            """,
+            (key, model_id, tier, now, now, context_length, provider, price_in, price_out),
+        )
+
+
+def delete_model(key: str) -> None:
+    with _connect() as conn:
+        conn.execute("DELETE FROM models WHERE key = ?", (key,))
+
+
 def set_model_context(key: str, context_length: int | None, loaded: bool | None = None) -> None:
     """Records what the server says about a model's context and whether it's
     loaded. Not user settings, so they're updated whenever the server is asked.
@@ -1038,7 +1065,7 @@ def set_model_context(key: str, context_length: int | None, loaded: bool | None 
 
 
 def update_model(key: str, **fields: Any) -> None:
-    allowed = {"tier", "description", "enabled"}
+    allowed = {"tier", "description", "enabled", "context_length", "price_in", "price_out"}
     unknown = set(fields) - allowed
     if unknown:
         raise ValueError(f"unknown model fields: {unknown}")

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { fmtTime } from "@/lib/format";
+import { fmtTime, modelLabel } from "@/lib/format";
 import { CRON_PRESETS } from "@/lib/cronPresets";
 import type { Model, Repo, ScheduleInput } from "@/lib/types";
 
@@ -163,8 +163,8 @@ export function ScheduleForm({
         <label htmlFor="sched-model">Model</label>
         <select id="sched-model" value={value.model ?? ""} onChange={(e) => set("model", e.target.value || null)}>
           <option value="">Auto (routed per turn)</option>
-          {models.filter((m) => m.enabled).map((m) => (
-            <option key={m.key} value={m.key}>{m.key} ({m.tier})</option>
+          {models.filter((m) => m.usable).map((m) => (
+            <option key={m.key} value={m.key}>{modelLabel(m)}</option>
           ))}
         </select>
       </div>

@@ -140,15 +140,58 @@ export interface AgentSetting {
   maximum: number;
 }
 
-/** A local model Bertha can run sessions on. */
+/** A model Bertha can run sessions on, from the local server or a hosted provider. */
 export interface Model {
   key: string;
   model_id: string;
+  /** "local", or a hosted provider's id. */
+  provider: string;
   tier: "light" | "standard" | "strong";
   description: string;
   enabled: boolean;
+  /** Enabled, and its provider is set up in .env: it can be chosen for a session. */
+  usable: boolean;
+  /** Tokens it takes. Local: what the server reports. Hosted: what the provider lists, editable. */
+  context_length: number | null;
+  /** 1 loaded, 0 not loaded, null unknown. Local models only. */
+  loaded: number | null;
+  /** Dollars per million tokens; null when free or not known. */
+  price_in: number | null;
+  price_out: number | null;
   created_at: number;
   updated_at: number;
+}
+
+/** One setting from .env, shown read-only. Secrets only say whether they're set. */
+export interface EnvSetting {
+  name: string;
+  set: boolean;
+  value: string | null;
+}
+
+/** Somewhere models come from: the local server, or a hosted vendor. Set up in .env. */
+export interface Provider {
+  id: string;
+  label: string;
+  blurb: string;
+  hosted: boolean;
+  configured: boolean;
+  env: EnvSetting[];
+}
+
+export interface ProvidersInfo {
+  providers: Provider[];
+  /** App-wide model settings from .env. */
+  general: EnvSetting[];
+}
+
+/** A model a hosted provider offers, to add. */
+export interface OfferedModel {
+  model_id: string;
+  name: string;
+  context_length: number | null;
+  price_in: number | null;
+  price_out: number | null;
 }
 
 /** replied: the agent answered and needs your reply. review: a PR is open. failed: the last turn errored. */
