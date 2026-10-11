@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-// Each settings area is its own page. Model providers (local and hosted
-// vendors) are meant to join Models here.
+// Each settings area is its own page. Models covers every provider, local and hosted.
 const SUBTABS = [
   { href: "/settings/agent", label: "Agent" },
   { href: "/settings/models", label: "Models" },

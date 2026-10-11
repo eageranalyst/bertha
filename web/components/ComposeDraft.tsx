@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { modelLabel } from "@/lib/format";
 import type { Model, Repo, SessionType } from "@/lib/types";
 
 // A code task this long is usually big enough to want a spec reviewed first.
@@ -29,7 +30,7 @@ export function ComposeDraft({
   // null follows the prompt's length until the box is ticked or unticked.
   const [specChoice, setSpecChoice] = useState<boolean | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const enabled = models.filter((m) => m.enabled);
+  const enabled = models.filter((m) => m.usable);
   const specFirst = !!repo && (specChoice ?? prompt.trim().length >= SPEC_FIRST_PROMPT_CHARS);
   const codeLabel = specFirst ? "Spec" : "Code";
 
@@ -72,7 +73,7 @@ export function ComposeDraft({
           <option value="">Auto (routed per turn)</option>
           {enabled.map((m) => (
             <option key={m.key} value={m.key}>
-              {m.key} ({m.tier})
+              {modelLabel(m)}
             </option>
           ))}
         </select>

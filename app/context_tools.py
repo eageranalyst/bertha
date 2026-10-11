@@ -162,7 +162,7 @@ def _result(request_id: Any, result: Any) -> dict:
 async def mcp(request: Request) -> Response:
     key = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
     grant = store.get_grant(key) if key else None
-    if not grant:
+    if not grant or grant["scope"] == "model":  # a model-only key (app/model_relay.py)
         return JSONResponse({"jsonrpc": "2.0", "id": None, "error": {"code": -32001, "message": "invalid or revoked key"}},
                             status_code=401)
     try:

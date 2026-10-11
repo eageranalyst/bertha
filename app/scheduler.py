@@ -51,7 +51,7 @@ from datetime import datetime, timezone
 
 from . import agent_context, agent_settings, code_index, cron, github_tools, specs
 from . import models as model_registry
-from . import store
+from . import providers, store
 from .routing import route as route_turn
 from .config import Settings
 from .docker_runner import DockerRunner
@@ -62,6 +62,21 @@ logger = logging.getLogger("factory.scheduler")
 TERMINAL_STATUSES = {"closed", "archived"}
 
 _chunk_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+
+RETRY_LOG_RE = re.compile(r"^Retrying on \S+: (\S+) can't run this turn")
+
+
+def models_failed_on_prompt(session_id: int) -> frozenset[str]:
+    """The models a retry has already moved this session's current prompt off.
+    A new message, PR comment or CI failure is a new prompt and starts afresh.
+    """
+    failed = set()
+    for log in reversed(store.list_logs(session_id)):
+        if log["kind"] in ("user_message", "pr_comment", "ci_failure"):
+            break
+        if log["kind"] == "system" and (match := RETRY_LOG_RE.match(log["content"])):
+            failed.add(match.group(1))
+    return frozenset(failed)
 
 
 def relevant_code(settings: Settings, repo: str, task: str) -> str:
@@ -178,7 +193,9 @@ class Scheduler:
         on the session and logged with the reason.
         """
         task = {"session_type": session_type, "has_repo": bool(session["repo"]), "prompt": prompt}
-        chosen, reason = route_turn(self.settings, session, task)
+        # A retry moved this prompt off the models that couldn't run it, and
+        # routing mustn't move it back, or the turn bounces between two models.
+        chosen, reason = route_turn(self.settings, session, task, exclude=models_failed_on_prompt(session["id"]))
         if chosen is None or chosen["key"] == session["model"]:
             return session
         store.update_session(session["id"], model=chosen["key"])
@@ -271,10 +288,50 @@ class Scheduler:
         key = store.create_grant(session["id"], session["repo"],
                                  limits["github_max_edits"], limits["github_max_closes"],
                                  scope=scope, max_pushes=limits["github_max_pushes"])
-        host = "egress" if self.settings.egress_isolation else "host.docker.internal"
-        base = f"http://{host}:{self.settings.tools_port}"
+        base = self._tools_base()
         return {"GITHUB_TOOLS_URL": f"{base}/mcp", "GITHUB_TOOLS_KEY": key,
                 "CONTEXT_TOOLS_URL": f"{base}/context/mcp"}
+
+    def _tools_base(self) -> str:
+        """The tools server (GitHub tools, context tools, model relay) as an agent container reaches it."""
+        host = "egress" if self.settings.egress_isolation else "host.docker.internal"
+        return f"http://{host}:{self.settings.tools_port}"
+
+    def _opencode_provider_id(self, model: dict[str, Any]) -> str:
+        """The provider name OpenCode knows a model under: FACTORY_LOCAL_PROVIDER
+        for the local server, the provider's own id for hosted ones."""
+        return self.settings.local_model_provider if model["provider"] == providers.LOCAL else model["provider"]
+
+    def _opencode_providers(self, session: dict[str, Any], relay_key: str | None) -> dict[str, Any]:
+        """OpenCode's "provider" config: every usable model, under its provider.
+        Hosted providers point at the model relay (app/model_relay.py) with this
+        turn's key, which the relay swaps for the real one; the local server's
+        address is filled in by the entrypoint, which knows the container's
+        route to it. A session without a repo has no tools key, so it gets a
+        key that only opens the relay."""
+        config: dict[str, Any] = {}
+        for model in store.list_models():
+            if not providers.usable(model):
+                continue
+            provider_id = self._opencode_provider_id(model)
+            if provider_id not in config:
+                if model["provider"] == providers.LOCAL:
+                    entry = {"npm": "@ai-sdk/openai-compatible", "name": "Local models (factory)", "options": {}}
+                else:
+                    if relay_key is None:
+                        relay_key = store.create_grant(session["id"], session["repo"] or "", 0, 0, scope="model")
+                    native = model["provider"] == "anthropic"
+                    entry = {
+                        "npm": "@ai-sdk/anthropic" if native else "@ai-sdk/openai-compatible",
+                        "name": f"{providers.label(self.settings, model['provider'])} (through Bertha)",
+                        "options": {"baseURL": f"{self._tools_base()}/llm/{model['provider']}", "apiKey": relay_key},
+                    }
+                config[provider_id] = {**entry, "models": {}}
+            spec: dict[str, Any] = {"id": model["model_id"], "name": model["model_id"]}
+            # OpenCode compacts when this fills, so a working size keeps steps fast.
+            spec["limit"] = {"context": working_context(model), "output": 8192}
+            config[provider_id]["models"][model["key"]] = spec
+        return config
 
     def _settle(self, session_id: int, status: str, attention: str | None, **fields: Any) -> None:
         """Ends a turn. `attention` says what the session is waiting on
@@ -399,10 +456,9 @@ class Scheduler:
         with self._lock:
             self._ask_clients[session["id"]] = client
         chosen = model_registry.resolve(self.settings, session.get("model"))
-        model_id = chosen["model_id"] if chosen else self.settings.local_model_id
         thread = threading.Thread(
             target=self._run_ask_request,
-            args=(session["id"], client, messages, model_id),
+            args=(session["id"], client, messages, chosen),
             daemon=True,
         )
         thread.start()
@@ -424,18 +480,19 @@ class Scheduler:
         return messages
 
     def _run_ask_request(
-        self, session_id: int, client: httpx.Client, messages: list[dict[str, str]], model_id: str
+        self, session_id: int, client: httpx.Client, messages: list[dict[str, str]], model: dict[str, Any] | None
     ) -> None:
         # Streamed: the reply's log entry is created at its first token and
         # rewritten as it grows, so the UI shows it being written.
         log_id: int | None = None
         text = ""
         saved_at = 0.0
+        model_id = model["model_id"] if model else self.settings.local_model_id
+        url, headers, extra = providers.chat_target(self.settings, model)
         try:
             with client.stream(
-                "POST",
-                f"{self.settings.local_model_host_base_url}/chat/completions",
-                json={"model": model_id, "messages": messages, "stream": True},
+                "POST", url, headers=headers,
+                json={"model": model_id, "messages": messages, "stream": True, **extra},
             ) as resp:
                 resp.raise_for_status()
                 for delta in _stream_deltas(resp.iter_lines()):
@@ -481,9 +538,10 @@ class Scheduler:
         spec_env = self._spec_turn_env(session, prompt, branch_name)
         chosen = model_registry.resolve(self.settings, session.get("model"))
         opencode_model = (
-            f"{self.settings.local_model_provider}/{chosen['key']}"
+            f"{self._opencode_provider_id(chosen)}/{chosen['key']}"
             if chosen else self.settings.opencode_model_ref
         )
+        github_env = self._github_tools_env(session)
         env = {
             "REPO": session["repo"] or "",
             "GITHUB_TOKEN": self.settings.github_token,
@@ -503,12 +561,8 @@ class Scheduler:
             # per-run setting: its run may use whatever time is left.
             **({"AGENT_RUN_TIMEOUT_SECONDS": str(max(60, int(session["deadline_at"] - time.time())))}
                if session.get("deadline_at") else {}),
-            # Every enabled model, so OpenCode knows the full set it can switch to.
-            "MODELS_JSON": json.dumps([
-                {"key": m["key"], "model_id": m["model_id"],
-                 "context": working_context(m)}
-                for m in store.list_models() if m["enabled"]
-            ]),
+            # Every usable model, by provider, so OpenCode knows the full set it can switch to.
+            "PROVIDERS_JSON": json.dumps(self._opencode_providers(session, github_env.get("GITHUB_TOOLS_KEY"))),
             "LOCAL_MODEL_PROVIDER": self.settings.local_model_provider,
             "LOCAL_MODEL_BASE_URL": self.settings.local_model_base_url,
             "LOCAL_MODEL_KEY": self.settings.local_model_key,
@@ -516,7 +570,7 @@ class Scheduler:
             "NO_PUSH": "1" if session.get("dry_run") else "",
             # A code review session speaks as QC and reviews its parent's PR.
             **self._review_env(session),
-            **self._github_tools_env(session),
+            **github_env,
             "BOT_NAME": self.settings.bot_name,
             "BOT_EMAIL": self.settings.bot_email,
             # Skills enabled for this repo, written into /data/skills by the entrypoint.
@@ -726,10 +780,10 @@ class Scheduler:
             session["title"] or "",
         )
         task = {"session_type": "code", "has_repo": bool(session["repo"]), "prompt": prompt}
-        chosen, _reason = route_turn(
-            self.settings, {**session, "last_turn_failed": 1}, task,
-            exclude=frozenset({failed_model} if failed_model else ()),
-        )
+        # Every model that already failed this prompt is out, not only the
+        # latest, so retries run out rather than going round in a loop.
+        exclude = models_failed_on_prompt(session["id"]) | frozenset({failed_model} if failed_model else ())
+        chosen, _reason = route_turn(self.settings, {**session, "last_turn_failed": 1}, task, exclude=exclude)
         if chosen is None or chosen["key"] == failed_model:
             store.append_log(
                 session["id"], "system",

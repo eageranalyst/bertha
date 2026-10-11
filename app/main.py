@@ -31,9 +31,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import uvicorn
 
-from . import agent_settings, context_tools, cron, github_tools
+from . import agent_settings, context_tools, cron, github_tools, model_relay
 from . import models as model_registry
-from . import store
+from . import providers, store
 from .config import get_settings
 from .skills import parse_skill
 from .docker_runner import DockerRunner
@@ -154,6 +154,7 @@ def _start_tools_server(port: int) -> uvicorn.Server:
     containers can be given a route to it without a route to this API."""
     if not any(getattr(r, "path", None) == "/context/mcp" for r in github_tools.app.routes):
         github_tools.app.include_router(context_tools.router)  # the context tools share the port and keys
+        github_tools.app.include_router(model_relay.router)  # and so does the model relay
     server = uvicorn.Server(uvicorn.Config(github_tools.app, host="127.0.0.1", port=port, log_level="warning"))
     threading.Thread(target=lambda: asyncio.run(server.serve()), name="factory-tools", daemon=True).start()
     return server
@@ -361,7 +362,7 @@ def api_set_session_model(session_id: int, body: SessionModelIn):
         store.append_log(session_id, "system", "Model set to automatic routing")
     else:
         chosen = store.get_model(body.model)
-        if not chosen or not chosen["enabled"]:
+        if not chosen or not providers.usable(chosen):
             raise HTTPException(400, f"model {body.model} is not an enabled model")
         store.update_session(session_id, model=chosen["key"], model_pinned=1)
         store.append_log(session_id, "system", f"Model pinned to {chosen['key']}")
@@ -482,7 +483,7 @@ def api_new_session(body: NewSessionIn):
     settings = get_settings()
     if body.model:
         chosen = store.get_model(body.model)
-        if not chosen or not chosen["enabled"]:
+        if not chosen or not providers.usable(chosen):
             raise HTTPException(400, f"model {body.model} is not an enabled model")
         model_key = chosen["key"]
     else:
@@ -679,6 +680,15 @@ class ModelIn(BaseModel):
     tier: str | None = None
     description: str | None = None
     enabled: bool | None = None
+    # Hosted models only; null clears. A local model's context is what its server reports.
+    context_length: int | None = None
+    price_in: float | None = None
+    price_out: float | None = None
+
+
+class HostedModelIn(BaseModel):
+    provider: str
+    model_id: str
 
 
 # -- schedules -------------------------------------------------------------
@@ -715,7 +725,7 @@ def _validate_schedule(body: ScheduleIn) -> float | None:
         raise HTTPException(400, "GitHub tools need a repo")
     if body.model:
         chosen = store.get_model(body.model)
-        if not chosen or not chosen["enabled"]:
+        if not chosen or not providers.usable(chosen):
             raise HTTPException(400, f"model {body.model} is not an enabled model")
     try:
         ZoneInfo(body.timezone)
@@ -952,7 +962,8 @@ def api_update_settings(body: dict[str, Any]):
 
 @app.get("/api/models")
 def api_list_models():
-    return store.list_models()
+    # usable: enabled, and its provider is still set up in .env, so it can be chosen.
+    return [{**m, "usable": providers.usable(m)} for m in store.list_models()]
 
 
 @app.post("/api/models/refresh")
@@ -963,14 +974,67 @@ def api_refresh_models():
         raise HTTPException(502, f"could not reach the model server: {exc}")
 
 
+@app.post("/api/models")
+def api_add_model(body: HostedModelIn):
+    """Adds one of a hosted provider's models."""
+    try:
+        return model_registry.add_hosted(get_settings(), body.provider, body.model_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise HTTPException(502, f"could not reach {body.provider}: {exc}")
+
+
 @app.patch("/api/models/{key}")
 def api_update_model(key: str, body: ModelIn):
-    if not store.get_model(key):
+    model = store.get_model(key)
+    if not model:
         raise HTTPException(404, "model not found")
     if body.tier is not None and body.tier not in model_registry.TIERS:
         raise HTTPException(400, f"tier must be one of {', '.join(model_registry.TIERS)}")
-    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    sent = body.model_dump(exclude_unset=True)
+    hosted_only = {"context_length", "price_in", "price_out"} & set(sent)
+    if hosted_only and not providers.is_hosted(model["provider"]):
+        raise HTTPException(400, f"a local model's {', '.join(sorted(hosted_only))} can't be set")
+    for name in ("context_length", "price_in", "price_out"):
+        if (sent.get(name) or 0) < 0:
+            raise HTTPException(400, f"{name} can't be negative")
+    # Prices and context can be cleared; the rest can only be changed.
+    fields = {k: v for k, v in sent.items() if v is not None or k in hosted_only}
     store.update_model(key, **fields)
     return store.get_model(key)
+
+
+@app.delete("/api/models/{key}")
+def api_delete_model(key: str):
+    """Removes a hosted model. Local models are rediscovered from the server,
+    so they're disabled instead."""
+    model = store.get_model(key)
+    if not model:
+        raise HTTPException(404, "model not found")
+    if not providers.is_hosted(model["provider"]):
+        raise HTTPException(400, "local models can't be removed; disable it instead")
+    store.delete_model(key)
+    return {"ok": True}
+
+
+@app.get("/api/providers")
+def api_list_providers():
+    """Providers and the model settings in .env, which the Models page shows read-only."""
+    return providers.describe(get_settings())
+
+
+@app.get("/api/providers/{provider}/models")
+def api_provider_models(provider: str):
+    """What a hosted provider offers, to choose models to add from."""
+    settings = get_settings()
+    if not providers.is_hosted(provider) or provider not in providers.BY_ID:
+        raise HTTPException(404, "no such hosted provider")
+    if not providers.configured(settings, provider):
+        raise HTTPException(400, f"{providers.label(settings, provider)} isn't set up in .env")
+    try:
+        return providers.available_models(settings, provider)
+    except Exception as exc:
+        raise HTTPException(502, f"could not reach {providers.label(settings, provider)}: {exc}")
 
 

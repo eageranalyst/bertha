@@ -750,7 +750,7 @@ def _rpc_error(request_id: Any, code: int, message: str) -> dict:
 async def mcp(request: Request) -> Response:
     key = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
     grant = store.get_grant(key) if key else None
-    if not grant:
+    if not grant or grant["scope"] == "model":  # a model-only key (app/model_relay.py)
         return JSONResponse(_rpc_error(None, -32001, "invalid or revoked key"), status_code=401)
     try:
         message = await request.json()

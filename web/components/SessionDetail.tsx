@@ -1,6 +1,6 @@
 "use client";
 
-import { statusLabel } from "@/lib/format";
+import { modelLabel, statusLabel } from "@/lib/format";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { latestTodos } from "@/lib/parseAgentLog";
 import type { LogEntry, Model, Session } from "@/lib/types";
@@ -67,7 +67,7 @@ export function SessionDetail({
   const pinned = session.model_pinned === 1;
   // A code review session: QC speaks, and Bertha wrote its task.
   const isReview = Boolean(session.review_of);
-  const enabledModels = models.filter((m) => m.enabled);
+  const enabledModels = models.filter((m) => m.usable);
   // A pinned model that has since been disabled still shows, so the select stays honest.
   const modelOptions = [
     ...enabledModels,
@@ -182,7 +182,7 @@ export function SessionDetail({
             <option value="auto">Auto (routed per turn)</option>
             {modelOptions.map((m) => (
               <option key={m.key} value={m.key}>
-                {m.key} ({m.tier})
+                {modelLabel(m)}
               </option>
             ))}
           </select>

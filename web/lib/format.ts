@@ -1,5 +1,11 @@
 const FRONTMATTER_RE = /^﻿?---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 
+/** A model in a picker: its name and tier, and where it runs when that's not this machine. */
+export function modelLabel(m: { key: string; tier: string; provider?: string }): string {
+  const hosted = m.provider && m.provider !== "local" ? `, ${m.provider}` : "";
+  return `${m.key} (${m.tier}${hosted})`;
+}
+
 /**
  * Splits a SKILL.md into its `---` frontmatter and the markdown body. Without
  * the split, the frontmatter renders as a rule and a run-on paragraph.
