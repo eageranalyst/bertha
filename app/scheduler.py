@@ -63,6 +63,21 @@ TERMINAL_STATUSES = {"closed", "archived"}
 
 _chunk_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 
+RETRY_LOG_RE = re.compile(r"^Retrying on \S+: (\S+) can't run this turn")
+
+
+def models_failed_on_prompt(session_id: int) -> frozenset[str]:
+    """The models a retry has already moved this session's current prompt off.
+    A new message, PR comment or CI failure is a new prompt and starts afresh.
+    """
+    failed = set()
+    for log in reversed(store.list_logs(session_id)):
+        if log["kind"] in ("user_message", "pr_comment", "ci_failure"):
+            break
+        if log["kind"] == "system" and (match := RETRY_LOG_RE.match(log["content"])):
+            failed.add(match.group(1))
+    return frozenset(failed)
+
 
 def relevant_code(settings: Settings, repo: str, task: str) -> str:
     """The repo's code chunks closest to the task, as markdown for the agent's
@@ -178,7 +193,9 @@ class Scheduler:
         on the session and logged with the reason.
         """
         task = {"session_type": session_type, "has_repo": bool(session["repo"]), "prompt": prompt}
-        chosen, reason = route_turn(self.settings, session, task)
+        # A retry moved this prompt off the models that couldn't run it, and
+        # routing mustn't move it back, or the turn bounces between two models.
+        chosen, reason = route_turn(self.settings, session, task, exclude=models_failed_on_prompt(session["id"]))
         if chosen is None or chosen["key"] == session["model"]:
             return session
         store.update_session(session["id"], model=chosen["key"])
@@ -726,10 +743,10 @@ class Scheduler:
             session["title"] or "",
         )
         task = {"session_type": "code", "has_repo": bool(session["repo"]), "prompt": prompt}
-        chosen, _reason = route_turn(
-            self.settings, {**session, "last_turn_failed": 1}, task,
-            exclude=frozenset({failed_model} if failed_model else ()),
-        )
+        # Every model that already failed this prompt is out, not only the
+        # latest, so retries run out rather than going round in a loop.
+        exclude = models_failed_on_prompt(session["id"]) | frozenset({failed_model} if failed_model else ())
+        chosen, _reason = route_turn(self.settings, {**session, "last_turn_failed": 1}, task, exclude=exclude)
         if chosen is None or chosen["key"] == failed_model:
             store.append_log(
                 session["id"], "system",
